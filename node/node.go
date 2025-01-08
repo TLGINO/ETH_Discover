@@ -3,8 +3,8 @@ package node
 
 import (
 	"fmt"
-	"go_fun/devp2p"
 	"go_fun/network"
+	"go_fun/serializer"
 	"net"
 	"strconv"
 	"time"
@@ -43,36 +43,40 @@ func (n *Node) SendPing() error {
 	myIP := server.GetPublicIP()
 	myUDPPort := udpConn.GetPort()
 	myTCPPort := tcpConn.GetPort()
-	toIP := net.ParseIP("157.90.35.166")
-	toUDPPort := uint16(30303)
-	toTCPPort := uint16(30303)
+	// toIP := net.ParseIP("157.90.35.166")
+	// toIP := net.ParseIP("65.108.70.101")
+	// toUDPPort := uint16(30303)
+	// toTCPPort := uint16(30303)
 
-	ping := &devp2p.Ping{
-		Version: 4,
-		From: devp2p.Endpoint{
-			IP:  myIP,
-			UDP: myUDPPort,
-			TCP: myTCPPort,
-		},
-		To: devp2p.Endpoint{
-			IP:  toIP,
-			UDP: toUDPPort,
-			TCP: toTCPPort,
-		},
-		Expiration: uint64(time.Now().Add(20 * time.Second).Unix()),
+	toIP := net.ParseIP("127.0.0.1")
+	toUDPPort := myUDPPort
+	toTCPPort := myTCPPort
+
+	from := serializer.Endpoint{
+		IP:  myIP,
+		UDP: myUDPPort,
+		TCP: myTCPPort,
 	}
+	to := serializer.Endpoint{
+		IP:  toIP,
+		UDP: toUDPPort,
+		TCP: toTCPPort,
+	}
+
+	expiration := uint64(time.Now().Add(50 * time.Second).Unix())
 
 	privateKey, err := crypto.GenerateKey()
 	if err != nil {
 		return fmt.Errorf("error generating private key: " + err.Error())
 	}
-
-	packet, err := devp2p.EncodePacket(privateKey, ping.Type(), ping)
+	pingMsg, err := serializer.NewPing(uint64(4), from, to, expiration, privateKey)
 	if err != nil {
-		return fmt.Errorf("error encoding packet: " + err.Error())
+		return fmt.Errorf("error creating ping: " + err.Error())
 	}
-	to := toIP.String() + ":" + strconv.Itoa(int(toUDPPort))
-	err = udpConn.Send(to, packet)
+
+	toAddr := toIP.String() + ":" + strconv.Itoa(int(toUDPPort))
+
+	err = udpConn.Send(toAddr, pingMsg)
 	if err != nil {
 		return fmt.Errorf("error sending: " + err.Error())
 	}

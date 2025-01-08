@@ -3,6 +3,7 @@ package network
 
 import (
 	"fmt"
+	"go_fun/serializer"
 	"net"
 )
 
@@ -51,6 +52,18 @@ func (u *UDP) handleConnections() {
 func (u *UDP) handleConnection(data []byte, addr *net.UDPAddr) {
 
 	fmt.Printf("Received from %s (UDP): %s", addr.String(), string(data))
+
+	packet, err := serializer.DeserializePacket(data)
+
+	if err == nil {
+		if packet.Header.Type == 1 {
+			ping := packet.Data.(*serializer.Ping)
+			println("Ping: ", ping.String())
+		} else if packet.Header.Type == 2 {
+			pong := packet.Data.(*serializer.Pong)
+			println("Pong: ", pong.String())
+		}
+	}
 }
 
 func (u *UDP) Send(to string, data []byte) error {
