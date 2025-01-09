@@ -3,6 +3,7 @@ package network
 
 import (
 	"fmt"
+	"go_fun/messages"
 	"net"
 )
 
@@ -11,11 +12,12 @@ type TCP struct {
 	listener    net.Listener
 	connections map[string]*net.Conn
 	port        uint16
+	registry    *messages.Registry // <- dependency injection
+
 }
 
-func (t *TCP) Init() error {
+func (t *TCP) Init(registry *messages.Registry) error {
 	t.port = 8000
-	// addr := strconv.Itoa(int(t.port))
 	addr := fmt.Sprintf(":%d", t.port)
 
 	listener, err := net.Listen("tcp", addr)
@@ -23,6 +25,7 @@ func (t *TCP) Init() error {
 		return fmt.Errorf("error creating TCP server: %v", err)
 	}
 	t.listener = listener
+	t.registry = registry
 
 	go t.handleConnections()
 	return nil

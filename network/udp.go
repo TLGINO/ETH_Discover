@@ -3,19 +3,22 @@ package network
 
 import (
 	"fmt"
-	"go_fun/serializer"
+	"go_fun/messages"
 	"net"
+	"sync"
 )
 
 // implements Connection
 type UDP struct {
-	conn *net.UDPConn
-	port uint16
+	conn     *net.UDPConn
+	port     uint16
+	registry *messages.Registry // <- dependency injection
+
+	messageLock sync.Mutex
 }
 
-func (u *UDP) Init() error {
+func (u *UDP) Init(registry *messages.Registry) error {
 	u.port = 8000
-	// addr := ":" + strconv.Itoa(int(u.port))
 	addr := fmt.Sprintf(":%d", u.port)
 
 	udpAddr, err := net.ResolveUDPAddr("udp", addr)
@@ -28,6 +31,7 @@ func (u *UDP) Init() error {
 		return fmt.Errorf("error creating UDP server: %v", err)
 	}
 	u.conn = conn
+	u.registry = registry
 
 	go u.handleConnections()
 	return nil
@@ -50,25 +54,21 @@ func (u *UDP) handleConnections() {
 }
 
 func (u *UDP) handleConnection(data []byte, addr *net.UDPAddr) {
+	u.messageLock.Lock()
+	defer u.messageLock.Unlock()
+	fmt.Printf("Received data (UDP) from: %s size %d\n", addr.String(), len(data))
 
-	fmt.Printf("Received from %s (UDP): %s", addr.String(), string(data))
-
-	packet, err := serializer.DeserializePacket(data)
-
-	if err == nil {
-		if packet.Header.Type == 1 {
-			ping := packet.Data.(*serializer.Ping)
-			println("Ping: ", ping.String())
-		} else if packet.Header.Type == 2 {
-			pong := packet.Data.(*serializer.Pong)
-			println("Pong: ", pong.String())
-		}
+	packet, err := messages.DeserializePacket(data)
+	if err != nil {
+		println("error in received udp data: " + err.Error())
+		return
 	}
+
+	u.registry.ExecCallBack(packet)
+
 }
 
 func (u *UDP) Send(to string, data []byte) error {
-	// to := ip + ":" + port
-	println("HERE TO: " + to)
 	addr, err := net.ResolveUDPAddr("udp", to)
 	if err != nil {
 		return fmt.Errorf("error resolving UDP address: %v", err)

@@ -3,6 +3,7 @@ package network
 
 import (
 	"encoding/json"
+	"go_fun/messages"
 	"net"
 	"net/http"
 )
@@ -12,23 +13,23 @@ type Server struct {
 	udp *UDP
 }
 
-func (s *Server) InitServer() error {
-	s.tcp = new(TCP)
-	if err := s.tcp.Init(); err != nil {
+func (s *Server) InitServer(registry *messages.Registry) error {
+	s.udp = new(UDP)
+	if err := s.udp.Init(registry); err != nil {
 		return err
 	}
-	s.udp = new(UDP)
-	if err := s.udp.Init(); err != nil {
+	s.tcp = new(TCP)
+	if err := s.tcp.Init(registry); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *Server) GetTCP() TCP {
-	return *s.tcp
-}
 func (s *Server) GetUDP() UDP {
 	return *s.udp
+}
+func (s *Server) GetTCP() TCP {
+	return *s.tcp
 }
 
 func (s *Server) GetPublicIP() net.IP {
@@ -42,7 +43,7 @@ func (s *Server) GetPublicIP() net.IP {
 }
 
 type Connection interface {
-	Init() error
+	Init(registry *messages.Registry) error
 	Send(to string, data []byte) error
 	GetPort() uint16
 }

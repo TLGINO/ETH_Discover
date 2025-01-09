@@ -1,4 +1,4 @@
-package serializer
+package messages
 
 import (
 	"crypto/ecdsa"
@@ -14,6 +14,8 @@ type Packet struct {
 	Header PacketHeader
 	Data   PacketData
 }
+
+// total 98 bytes
 type PacketHeader struct {
 	Hash      [32]byte
 	Signature [65]byte
@@ -83,40 +85,63 @@ func (p Pong) String() string {
 		p.ENRSeq,
 	)
 }
-func Serialize(pd PacketData, priv *ecdsa.PrivateKey) ([]byte, error) {
+
+// Serialize returns the serialized data of a Packet obj and an error
+func (p *Packet) Serialize() ([]byte, error) {
 	// 1. RLP encode the packet data
+	encodedData, err := rlp.EncodeToBytes(p.Data)
+	if err != nil {
+		return nil, err
+	}
+
+	hash := p.Header.Hash
+	signature := p.Header.Signature
+	dtype := p.Header.Type
+
+	// 4. Assemble the final packet: hash || signature || packet-type || packet-data
+	data := make([]byte, 0, len(hash)+len(signature)+1+len(encodedData))
+
+	data = append(data, hash[:]...)
+	data = append(data, signature[:]...)
+	data = append(data, dtype)
+	data = append(data, encodedData...)
+
+	return data, nil
+}
+func NewPacket(pd PacketData, priv *ecdsa.PrivateKey) (*Packet, error) {
+	// get RLP encoded data
 	encodedData, err := rlp.EncodeToBytes(pd)
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Create the packet to be signed: packet-type || packet-data
-	toSign := append([]byte{pd.Type()}, encodedData...)
-
-	// 3. Sign the packet
-	hash := crypto.Keccak256(toSign)
-	signature, err := crypto.Sign(hash, priv)
+	// create signature
+	hasherSignature := sha3.NewLegacyKeccak256()
+	hasherSignature.Write([]byte{pd.Type()})
+	signature, err := crypto.Sign(hasherSignature.Sum(nil), priv)
 	if err != nil {
 		return nil, err
 	}
 
-	// 4. Assemble the final packet: hash || signature || packet-type || packet-data
-	packet := make([]byte, 0, len(hash)+len(signature)+1+len(encodedData))
+	// create hash
+	hashPacket := sha3.NewLegacyKeccak256()
+	hashPacket.Write(signature[:])
+	hashPacket.Write([]byte{pd.Type()})
+	hashPacket.Write(encodedData)
+	ph := PacketHeader{
+		Hash:      [32]byte(hashPacket.Sum(nil)),
+		Signature: [65]byte(signature),
+		Type:      pd.Type(),
+	}
+	p := Packet{
+		Header: ph,
+		Data:   pd,
+	}
+	return &p, nil
 
-	// Calculate hash of the signed data
-	finalHash := sha3.NewLegacyKeccak256()
-	finalHash.Write(signature)
-	finalHash.Write([]byte{pd.Type()})
-	finalHash.Write(encodedData)
-
-	packet = append(packet, finalHash.Sum(nil)...)
-	packet = append(packet, signature...)
-	packet = append(packet, pd.Type())
-	packet = append(packet, encodedData...)
-
-	return packet, nil
 }
-func NewPing(version uint64, from Endpoint, to Endpoint, expiration uint64, priv *ecdsa.PrivateKey) ([]byte, error) {
+
+func NewPingPacket(version uint64, from Endpoint, to Endpoint, expiration uint64, priv *ecdsa.PrivateKey) (*Packet, error) {
 	ping := Ping{
 		Version:    version,
 		From:       from,
@@ -124,5 +149,5 @@ func NewPing(version uint64, from Endpoint, to Endpoint, expiration uint64, priv
 		Expiration: expiration,
 		// ENRSeq:     enrSeq,
 	}
-	return Serialize(ping, priv)
+	return NewPacket(ping, priv)
 }
