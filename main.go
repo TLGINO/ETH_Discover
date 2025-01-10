@@ -17,11 +17,12 @@ func main() {
 	// Give the server time to start
 	time.Sleep(time.Second)
 
-	err = n.SendPing()
+	bindedBootNode, err := n.Bind()
 	if err != nil {
 		fmt.Println("error sending ping:", err.Error())
 		return
 	}
+	println("Binded to:", bindedBootNode)
 
 	select {}
 }

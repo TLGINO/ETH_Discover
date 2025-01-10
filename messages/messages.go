@@ -10,6 +10,20 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
+var privateKey *ecdsa.PrivateKey
+var publicKey *ecdsa.PublicKey
+
+func CreatePK() {
+	pk, err := crypto.GenerateKey()
+	if err != nil {
+		fmt.Println("error generating private key:", err)
+		return
+	}
+	privateKey = pk
+	publicKey = &pk.PublicKey
+
+}
+
 type Packet struct {
 	Header PacketHeader
 	Data   PacketData
@@ -32,9 +46,12 @@ type Endpoint struct {
 	TCP uint16
 }
 
-func (e Endpoint) String() string {
-	return fmt.Sprintf("IP: %v, UDP: %d, TCP: %d", net.IP(e.IP), e.UDP, e.TCP)
+type NodeNeighbors struct {
+	Endpoint
+	id [64]byte // secp256k1 public key
 }
+
+// -------
 
 // implements PacketData
 type Ping struct {
@@ -47,22 +64,9 @@ type Ping struct {
 
 func (p Ping) Type() byte { return 0x01 }
 
-func (p Ping) String() string {
-	return fmt.Sprintf("Ping{\n"+
-		"  Version: %d\n"+
-		"  From: {%v}\n"+
-		"  To: {%v}\n"+
-		"  Expiration: %d\n"+
-		"  ENRSeq: %d\n"+
-		"}",
-		p.Version,
-		p.From,
-		p.To,
-		p.Expiration,
-		p.ENRSeq,
-	)
-}
+// -------
 
+// implements PacketData
 type Pong struct {
 	To         Endpoint // Endpoint of the original ping sender
 	PingHash   [32]byte // Hash of the corresponding ping packet
@@ -72,19 +76,30 @@ type Pong struct {
 
 func (p Pong) Type() byte { return 0x02 }
 
-func (p Pong) String() string {
-	return fmt.Sprintf("Pong{\n"+
-		"  To: {%v}\n"+
-		"  PingHash: %x\n"+
-		"  Expiration: %d\n"+
-		"  ENRSeq: %d\n"+
-		"}",
-		p.To,
-		p.PingHash,
-		p.Expiration,
-		p.ENRSeq,
-	)
+// -------
+
+// implements PacketData
+type FindNode struct {
+	Target     [64]byte // secp256k1 public key
+	Expiration uint64   // Unix timestamp when this packet expires
 }
+
+func (f FindNode) Type() byte { return 0x03 }
+
+// -------
+
+// implements PacketData
+type Neighbors struct {
+	Nodes      []*NodeNeighbors // [[ip, udp-port, tcp-port, node-id], ...]
+	Expiration uint64           // Unix timestamp when this packet expires
+}
+
+func (n Neighbors) Type() byte { return 0x04 }
+
+//
+// ------------------------------------
+// Packet Serializing
+//
 
 // Serialize returns the serialized data of a Packet obj and an error
 func (p *Packet) Serialize() ([]byte, error) {
@@ -108,7 +123,7 @@ func (p *Packet) Serialize() ([]byte, error) {
 
 	return data, nil
 }
-func NewPacket(pd PacketData, priv *ecdsa.PrivateKey) (*Packet, error) {
+func NewPacket(pd PacketData) (*Packet, error) {
 	// get RLP encoded data
 	encodedData, err := rlp.EncodeToBytes(pd)
 	if err != nil {
@@ -118,7 +133,7 @@ func NewPacket(pd PacketData, priv *ecdsa.PrivateKey) (*Packet, error) {
 	// create signature
 	hasherSignature := sha3.NewLegacyKeccak256()
 	hasherSignature.Write([]byte{pd.Type()})
-	signature, err := crypto.Sign(hasherSignature.Sum(nil), priv)
+	signature, err := crypto.Sign(hasherSignature.Sum(nil), privateKey)
 	if err != nil {
 		return nil, err
 	}
@@ -141,13 +156,66 @@ func NewPacket(pd PacketData, priv *ecdsa.PrivateKey) (*Packet, error) {
 
 }
 
-func NewPingPacket(version uint64, from Endpoint, to Endpoint, expiration uint64, priv *ecdsa.PrivateKey) (*Packet, error) {
+//
+// ------------------------------------
+// Creating Packets
+//
+
+func NewPingPacket(version uint64, from Endpoint, to Endpoint, expiration uint64) (*Packet, error) {
 	ping := Ping{
 		Version:    version,
 		From:       from,
 		To:         to,
 		Expiration: expiration,
-		// ENRSeq:     enrSeq,
+		ENRSeq:     0,
 	}
-	return NewPacket(ping, priv)
+	return NewPacket(ping)
+}
+func NewPongPacket(to Endpoint, hash [32]byte, expiration uint64) (*Packet, error) {
+	pong := Pong{
+		To:         to,
+		PingHash:   hash,
+		Expiration: expiration,
+		ENRSeq:     0,
+	}
+	return NewPacket(pong)
+}
+
+//
+// ------------------------------------
+// Printing
+//
+
+func (e Endpoint) String() string {
+	return fmt.Sprintf("IP: %v, UDP: %d, TCP: %d", net.IP(e.IP), e.UDP, e.TCP)
+}
+
+func (p Pong) String() string {
+	return fmt.Sprintf("Pong{\n"+
+		"  To: {%v}\n"+
+		"  PingHash: %x\n"+
+		"  Expiration: %d\n"+
+		"  ENRSeq: %d\n"+
+		"}",
+		p.To,
+		p.PingHash,
+		p.Expiration,
+		p.ENRSeq,
+	)
+}
+
+func (p Ping) String() string {
+	return fmt.Sprintf("Ping{\n"+
+		"  Version: %d\n"+
+		"  From: {%v}\n"+
+		"  To: {%v}\n"+
+		"  Expiration: %d\n"+
+		"  ENRSeq: %d\n"+
+		"}",
+		p.Version,
+		p.From,
+		p.To,
+		p.Expiration,
+		p.ENRSeq,
+	)
 }
