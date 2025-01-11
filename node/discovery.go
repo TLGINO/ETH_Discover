@@ -3,21 +3,13 @@ package node
 import (
 	"fmt"
 	"go_fun/messages"
-	"net"
 	"strconv"
 	"time"
 )
 
-var bootNode = []string{
-	"18.138.108.67",
-	"3.209.45.79",
-	"65.108.70.101",
-	"157.90.35.166",
-}
-
 // Bind binds a node
 // Sends a Ping, awaits a corresponding Pong, returns the address of the binded bootnode
-func (n *Node) Bind() (string, error) {
+func (n *Node) Bind() {
 	server := n.GetServer()
 	tcpConn := server.GetTCP()
 	udpConn := server.GetUDP()
@@ -26,12 +18,15 @@ func (n *Node) Bind() (string, error) {
 	myUDPPort := udpConn.GetPort()
 	myTCPPort := tcpConn.GetPort()
 
-	for _, bootNodeAddr := range bootNode {
-		println(bootNodeAddr)
-		toIP := net.ParseIP(bootNodeAddr)
-		toUDPPort := uint16(30303)
-		// toIP := net.ParseIP("127.0.0.1")
-		// toUDPPort := myUDPPort
+	allENodes := n.GetAllENodes()
+	var filteredENodes []*messages.ENode
+	for eNode, state := range allENodes {
+		if state == NotBondedENode {
+			filteredENodes = append(filteredENodes, eNode)
+		}
+	}
+
+	for _, eNode := range filteredENodes {
 
 		from := messages.Endpoint{
 			IP:  myIP,
@@ -39,8 +34,8 @@ func (n *Node) Bind() (string, error) {
 			TCP: myTCPPort,
 		}
 		to := messages.Endpoint{
-			IP:  toIP,
-			UDP: toUDPPort,
+			IP:  eNode.IP,
+			UDP: eNode.UDP,
 			TCP: 0,
 		}
 
@@ -48,41 +43,75 @@ func (n *Node) Bind() (string, error) {
 
 		pingPacket, err := messages.NewPingPacket(4, from, to, expiration)
 		if err != nil {
-			return "", fmt.Errorf("error creating ping: " + err.Error())
+			fmt.Print("error creating ping: " + err.Error())
+			continue
 		}
 
 		pingData, err := pingPacket.Serialize()
 		if err != nil {
-			return "", fmt.Errorf("error serializing ping: " + err.Error())
+			fmt.Print("error serializing ping: " + err.Error())
+			continue
 		}
 
-		toAddr := toIP.String() + ":" + strconv.Itoa(int(toUDPPort))
-
+		toAddr := eNode.IP.String() + ":" + strconv.Itoa(int(eNode.UDP))
 		err = n.SendUDP(toAddr, pingData)
 		if err != nil {
-			return "", fmt.Errorf("error sending: " + err.Error())
+			fmt.Print("error sending: " + err.Error())
+			continue
 		}
 
 		ch := make(chan messages.Packet)
-		n.discoveryMessagesLock.Lock()
-		n.discoveryMessages[pingPacket.Header.Hash] = ch
-		n.discoveryMessagesLock.Unlock()
+		n.AddAwaitPong(pingPacket.Header.Hash, ch)
 
 		defer func() {
-			n.discoveryMessagesLock.Lock()
-			delete(n.discoveryMessages, pingPacket.Header.Hash)
-			n.discoveryMessagesLock.Unlock()
-
+			n.RemoveAwaitPong(pingPacket.Header.Hash)
 		}()
 
 		select {
 		case <-ch:
-			fmt.Println("Received pong response!")
-			return bootNodeAddr, nil
-		case <-time.After(5 * time.Second):
+			fmt.Printf("Bonded with node: %x\n", eNode.ID)
+			n.UpdateENode(eNode, BondedENode)
+		case <-time.After(1 * time.Second):
 			fmt.Println("Timeout waiting for pong response, trying with new node")
 		}
 
 	}
-	return "", fmt.Errorf("error performing bind, no one responded")
+}
+
+func (n *Node) Find() {
+
+	allENodes := n.GetAllENodes()
+	var filteredENodes []*messages.ENode
+	for eNode, state := range allENodes {
+		if state == BondedENode {
+			filteredENodes = append(filteredENodes, eNode)
+		}
+	}
+
+	for _, eNode := range filteredENodes {
+		expiration := uint64(time.Now().Add(50 * time.Second).Unix())
+
+		findNodePacket, err := messages.NewFindNodePacket(expiration)
+		if err != nil {
+			fmt.Print("error creating findNode: " + err.Error())
+			continue
+		}
+
+		findNodeData, err := findNodePacket.Serialize()
+		if err != nil {
+			fmt.Print("error serializing findNode: " + err.Error())
+			continue
+		}
+
+		toAddr := eNode.IP.String() + ":" + strconv.Itoa(int(eNode.UDP))
+		err = n.SendUDP(toAddr, findNodeData)
+		if err != nil {
+			fmt.Print("error sending: " + err.Error())
+			continue
+		}
+		// for now simply consider that after waiting 1s, we have received a neighbour from this node
+
+		time.Sleep(1 * time.Second)
+		n.UpdateENode(eNode, AnsweredFindNode)
+	}
 }

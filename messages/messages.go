@@ -7,7 +7,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rlp"
-	"golang.org/x/crypto/sha3"
 )
 
 var privateKey *ecdsa.PrivateKey
@@ -35,6 +34,7 @@ type PacketHeader struct {
 	Signature [65]byte
 	Type      byte
 }
+
 type PacketData interface {
 	Type() byte
 	String() string
@@ -46,9 +46,11 @@ type Endpoint struct {
 	TCP uint16
 }
 
-type NodeNeighbors struct {
-	Endpoint
-	id [64]byte // secp256k1 public key
+type ENode struct {
+	IP  net.IP
+	UDP uint16
+	TCP uint16
+	ID  [64]byte // secp256k1 public key
 }
 
 // -------
@@ -59,7 +61,10 @@ type Ping struct {
 	From       Endpoint
 	To         Endpoint
 	Expiration uint64 // Unix timestamp
-	ENRSeq     uint64 // Optional ENR sequence number
+	ENRSeq     uint64 `rlp:"optional"` // Optional ENR sequence number
+
+	// Ignore additional fields (for forward compatibility).
+	Rest []rlp.RawValue `rlp:"tail"`
 }
 
 func (p Ping) Type() byte { return 0x01 }
@@ -71,7 +76,10 @@ type Pong struct {
 	To         Endpoint // Endpoint of the original ping sender
 	PingHash   [32]byte // Hash of the corresponding ping packet
 	Expiration uint64   // Unix timestamp when this packet expires
-	ENRSeq     uint64   // Optional ENR sequence number
+	ENRSeq     uint64   `rlp:"optional"` // Optional ENR sequence number
+
+	// Ignore additional fields (for forward compatibility).
+	Rest []rlp.RawValue `rlp:"tail"`
 }
 
 func (p Pong) Type() byte { return 0x02 }
@@ -82,6 +90,8 @@ func (p Pong) Type() byte { return 0x02 }
 type FindNode struct {
 	Target     [64]byte // secp256k1 public key
 	Expiration uint64   // Unix timestamp when this packet expires
+
+	Rest []rlp.RawValue `rlp:"tail"`
 }
 
 func (f FindNode) Type() byte { return 0x03 }
@@ -90,8 +100,10 @@ func (f FindNode) Type() byte { return 0x03 }
 
 // implements PacketData
 type Neighbors struct {
-	Nodes      []*NodeNeighbors // [[ip, udp-port, tcp-port, node-id], ...]
-	Expiration uint64           // Unix timestamp when this packet expires
+	Nodes      []ENode // [[ip, udp-port, tcp-port, node-id], ...]
+	Expiration uint64  // Unix timestamp when this packet expires
+
+	Rest []rlp.RawValue `rlp:"tail"`
 }
 
 func (n Neighbors) Type() byte { return 0x04 }
@@ -103,57 +115,46 @@ func (n Neighbors) Type() byte { return 0x04 }
 
 // Serialize returns the serialized data of a Packet obj and an error
 func (p *Packet) Serialize() ([]byte, error) {
-	// 1. RLP encode the packet data
-	encodedData, err := rlp.EncodeToBytes(p.Data)
+	data, err := rlp.EncodeToBytes(p.Data)
 	if err != nil {
 		return nil, err
 	}
+	packet := make([]byte, 0, 98+len(data)) // Header size + Data size
+	packet = append(packet, p.Header.Hash[:]...)
+	packet = append(packet, p.Header.Signature[:]...)
+	packet = append(packet, p.Data.Type())
+	packet = append(packet, data...)
 
-	hash := p.Header.Hash
-	signature := p.Header.Signature
-	dtype := p.Header.Type
-
-	// 4. Assemble the final packet: hash || signature || packet-type || packet-data
-	data := make([]byte, 0, len(hash)+len(signature)+1+len(encodedData))
-
-	data = append(data, hash[:]...)
-	data = append(data, signature[:]...)
-	data = append(data, dtype)
-	data = append(data, encodedData...)
-
-	return data, nil
+	return packet, nil
 }
+
 func NewPacket(pd PacketData) (*Packet, error) {
-	// get RLP encoded data
-	encodedData, err := rlp.EncodeToBytes(pd)
+	data, err := rlp.EncodeToBytes(pd)
 	if err != nil {
 		return nil, err
 	}
 
-	// create signature
-	hasherSignature := sha3.NewLegacyKeccak256()
-	hasherSignature.Write([]byte{pd.Type()})
-	signature, err := crypto.Sign(hasherSignature.Sum(nil), privateKey)
+	to_sign := append([]byte{pd.Type()}, data...)
+	sig, err := crypto.Sign(crypto.Keccak256(to_sign), privateKey)
 	if err != nil {
 		return nil, err
 	}
 
-	// create hash
-	hashPacket := sha3.NewLegacyKeccak256()
-	hashPacket.Write(signature[:])
-	hashPacket.Write([]byte{pd.Type()})
-	hashPacket.Write(encodedData)
+	to_hash := append(sig, to_sign...)
+	hash := crypto.Keccak256(to_hash)
+
 	ph := PacketHeader{
-		Hash:      [32]byte(hashPacket.Sum(nil)),
-		Signature: [65]byte(signature),
+		Hash:      [32]byte(hash),
+		Signature: [65]byte(sig),
 		Type:      pd.Type(),
 	}
+
 	p := Packet{
 		Header: ph,
 		Data:   pd,
 	}
-	return &p, nil
 
+	return &p, nil
 }
 
 //
@@ -179,6 +180,20 @@ func NewPongPacket(to Endpoint, hash [32]byte, expiration uint64) (*Packet, erro
 		ENRSeq:     0,
 	}
 	return NewPacket(pong)
+}
+func NewFindNodePacket(expiration uint64) (*Packet, error) {
+
+	publicKeyBytes := crypto.FromECDSAPub(publicKey)
+	pubBytes := crypto.Keccak256Hash(publicKeyBytes)
+
+	var target [64]byte
+	copy(target[:], pubBytes[:])
+
+	findNode := FindNode{
+		Target:     target,
+		Expiration: expiration,
+	}
+	return NewPacket(findNode)
 }
 
 //
@@ -217,5 +232,27 @@ func (p Ping) String() string {
 		p.To,
 		p.Expiration,
 		p.ENRSeq,
+	)
+}
+func (f FindNode) String() string {
+	return fmt.Sprintf("FindNode{\n"+
+		"  Target: %x\n"+
+		"  Expiration: %d\n"+
+		"}",
+		f.Target,
+		f.Expiration,
+	)
+}
+func (n Neighbors) String() string {
+	nodesStr := ""
+	for _, node := range n.Nodes {
+		nodesStr += fmt.Sprintf("{IP: %v, UDP: %d, TCP: %d, ID: %x}, ", node.IP, node.UDP, node.TCP, node.ID)
+	}
+	return fmt.Sprintf("Neighbors{\n"+
+		"  Nodes: [%v]\n"+
+		"  Expiration: %d\n"+
+		"}",
+		nodesStr,
+		n.Expiration,
 	)
 }

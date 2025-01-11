@@ -17,7 +17,7 @@ type TCP struct {
 }
 
 func (t *TCP) Init(registry *messages.Registry) error {
-	t.port = 8000
+	t.port = 30303
 	addr := fmt.Sprintf(":%d", t.port)
 
 	listener, err := net.Listen("tcp", addr)

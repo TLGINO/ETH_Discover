@@ -4,13 +4,15 @@ import (
 	"fmt"
 	"go_fun/messages"
 	"strconv"
+	"time"
 )
 
 func (n *Node) ExecPing(m messages.Packet) {
 	ping := m.Data.(*messages.Ping)
-	fmt.Printf("processing ping: %s\n", ping)
+	fmt.Printf("received ping\n")
 
-	pongPacket, err := messages.NewPongPacket(ping.From, m.Header.Hash, ping.Expiration)
+	expiration := uint64(time.Now().Add(50 * time.Second).Unix())
+	pongPacket, err := messages.NewPongPacket(ping.From, m.Header.Hash, expiration)
 	if err != nil {
 		fmt.Printf("error creating pong: %s\n", err)
 		return
@@ -27,19 +29,20 @@ func (n *Node) ExecPing(m messages.Packet) {
 	if err != nil {
 		fmt.Printf("error sending: %s\n", err)
 	}
-	println("answered ping")
 }
 
 func (n *Node) ExecPong(m messages.Packet) {
 	pong := m.Data.(*messages.Pong)
-	fmt.Printf("processing pong: %s\n", pong)
-	n.discoveryMessagesLock.Lock()
-	defer n.discoveryMessagesLock.Unlock()
+	fmt.Printf("received pong\n")
 
-	ch, exists := n.discoveryMessages[pong.PingHash]
-	if exists {
+	ch := n.GetAwaitPong(pong.PingHash)
+	if ch != nil {
 		ch <- m
 	} else {
 		fmt.Printf("unsolicited pong received")
 	}
+}
+func (n *Node) ExecNeighbors(m messages.Packet) {
+	neighbors := m.Data.(*messages.Neighbors)
+	fmt.Printf("received neighbors: %s\n", neighbors)
 }

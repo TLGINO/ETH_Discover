@@ -30,6 +30,10 @@ func DeserializePacket(data []byte) (*Packet, error) {
 		p.Data, err = deserializePing(packetData)
 	case 0x02: // Pong
 		p.Data, err = deserializePong(packetData)
+	case 0x03: // FindNode
+		p.Data, err = deserializeFindNode(packetData)
+	case 0x04: // Neighbors
+		p.Data, err = deserializeNeighbors(packetData)
 	default:
 		return nil, fmt.Errorf("invalid packet type: %x", p.Header.Type)
 	}
@@ -55,6 +59,24 @@ func deserializePong(data []byte) (*Pong, error) {
 	err := stream.Decode(&m)
 	if err != nil {
 		return nil, fmt.Errorf("error deserializing pong: " + err.Error())
+	}
+	return &m, nil
+}
+func deserializeFindNode(data []byte) (*FindNode, error) {
+	var m FindNode
+	stream := rlp.NewStream(bytes.NewReader(data), 0)
+	err := stream.Decode(&m)
+	if err != nil {
+		return nil, fmt.Errorf("error deserializing findNode: " + err.Error())
+	}
+	return &m, nil
+}
+func deserializeNeighbors(data []byte) (*Neighbors, error) {
+	var m Neighbors
+	stream := rlp.NewStream(bytes.NewReader(data), 0)
+	err := stream.Decode(&m)
+	if err != nil {
+		return nil, fmt.Errorf("error deserializing neighbors: " + err.Error())
 	}
 	return &m, nil
 }

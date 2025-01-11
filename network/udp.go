@@ -18,7 +18,7 @@ type UDP struct {
 }
 
 func (u *UDP) Init(registry *messages.Registry) error {
-	u.port = 8000
+	u.port = 30303
 	addr := fmt.Sprintf(":%d", u.port)
 
 	udpAddr, err := net.ResolveUDPAddr("udp", addr)
@@ -42,7 +42,7 @@ func (u *UDP) GetPort() uint16 {
 }
 
 func (u *UDP) handleConnections() {
-	buf := make([]byte, 1024)
+	buf := make([]byte, 1280) // Max packet size
 	for {
 		n, addr, err := u.conn.ReadFromUDP(buf)
 		if err != nil {

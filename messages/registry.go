@@ -31,5 +31,5 @@ func (r *Registry) ExecCallBack(pd *Packet) {
 		return
 	}
 
-	fmt.Errorf("callback not found for type: %d", pd.Data.Type())
+	fmt.Printf("callback not found for type: %d", pd.Data.Type())
 }
