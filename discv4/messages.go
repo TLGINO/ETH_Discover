@@ -1,27 +1,14 @@
-package messages
+package discv4
 
 import (
-	"crypto/ecdsa"
 	"fmt"
+	"go_fun/enr"
+	G "go_fun/global"
 	"net"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rlp"
 )
-
-var privateKey *ecdsa.PrivateKey
-var publicKey *ecdsa.PublicKey
-
-func CreatePK() {
-	pk, err := crypto.GenerateKey()
-	if err != nil {
-		fmt.Println("error generating private key:", err)
-		return
-	}
-	privateKey = pk
-	publicKey = &pk.PublicKey
-
-}
 
 type Packet struct {
 	Header PacketHeader
@@ -108,6 +95,29 @@ type Neighbors struct {
 
 func (n Neighbors) Type() byte { return 0x04 }
 
+// -------
+
+// implements PacketData
+type ENRRequest struct {
+	Expiration uint64 // Unix timestamp when this packet expires
+
+	Rest []rlp.RawValue `rlp:"tail"`
+}
+
+func (e ENRRequest) Type() byte { return 0x05 }
+
+// -------
+
+// implements PacketData
+type ENRResponse struct {
+	RequestHash [32]byte // Hash of the entire ENRRequest packet being replied to
+	ENR         enr.ENR
+
+	Rest []rlp.RawValue `rlp:"tail"`
+}
+
+func (e ENRResponse) Type() byte { return 0x06 }
+
 //
 // ------------------------------------
 // Packet Serializing
@@ -135,7 +145,7 @@ func NewPacket(pd PacketData) (*Packet, error) {
 	}
 
 	to_sign := append([]byte{pd.Type()}, data...)
-	sig, err := crypto.Sign(crypto.Keccak256(to_sign), privateKey)
+	sig, err := crypto.Sign(crypto.Keccak256(to_sign), G.PRIVATE_KEY)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +193,7 @@ func NewPongPacket(to Endpoint, hash [32]byte, expiration uint64) (*Packet, erro
 }
 func NewFindNodePacket(expiration uint64) (*Packet, error) {
 
-	publicKeyBytes := crypto.FromECDSAPub(publicKey)
+	publicKeyBytes := crypto.FromECDSAPub(G.PUBLIC_KEY)
 	pubBytes := crypto.Keccak256Hash(publicKeyBytes)
 
 	var target [64]byte
@@ -194,6 +204,19 @@ func NewFindNodePacket(expiration uint64) (*Packet, error) {
 		Expiration: expiration,
 	}
 	return NewPacket(findNode)
+}
+func NewENRRequestPacket(expiration uint64) (*Packet, error) {
+	enrRequest := ENRRequest{
+		Expiration: expiration,
+	}
+	return NewPacket(enrRequest)
+}
+func NewENRResponsePacket(hash [32]byte, enr enr.ENR) (*Packet, error) {
+	enrResponse := ENRResponse{
+		RequestHash: hash,
+		ENR:         enr,
+	}
+	return NewPacket(enrResponse)
 }
 
 //
@@ -254,5 +277,21 @@ func (n Neighbors) String() string {
 		"}",
 		nodesStr,
 		n.Expiration,
+	)
+}
+func (e ENRRequest) String() string {
+	return fmt.Sprintf("ENRRequest{\n"+
+		"  Expiration: %d\n"+
+		"}",
+		e.Expiration,
+	)
+}
+func (e ENRResponse) String() string {
+	return fmt.Sprintf("ENRResponse{\n"+
+		"  RequestHash: %x\n"+
+		"  ENR: %v\n"+
+		"}",
+		e.RequestHash,
+		e.ENR,
 	)
 }

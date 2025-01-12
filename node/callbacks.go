@@ -2,17 +2,17 @@ package node
 
 import (
 	"fmt"
-	"go_fun/messages"
+	"go_fun/discv4"
 	"strconv"
 	"time"
 )
 
-func (n *Node) ExecPing(m messages.Packet) {
-	ping := m.Data.(*messages.Ping)
+func (n *Node) ExecPing(m discv4.Packet) {
+	ping := m.Data.(*discv4.Ping)
 	fmt.Printf("received ping\n")
 
 	expiration := uint64(time.Now().Add(50 * time.Second).Unix())
-	pongPacket, err := messages.NewPongPacket(ping.From, m.Header.Hash, expiration)
+	pongPacket, err := discv4.NewPongPacket(ping.From, m.Header.Hash, expiration)
 	if err != nil {
 		fmt.Printf("error creating pong: %s\n", err)
 		return
@@ -31,8 +31,8 @@ func (n *Node) ExecPing(m messages.Packet) {
 	}
 }
 
-func (n *Node) ExecPong(m messages.Packet) {
-	pong := m.Data.(*messages.Pong)
+func (n *Node) ExecPong(m discv4.Packet) {
+	pong := m.Data.(*discv4.Pong)
 	fmt.Printf("received pong\n")
 
 	ch := n.GetAwaitPong(pong.PingHash)
@@ -42,7 +42,24 @@ func (n *Node) ExecPong(m messages.Packet) {
 		fmt.Printf("unsolicited pong received")
 	}
 }
-func (n *Node) ExecNeighbors(m messages.Packet) {
-	neighbors := m.Data.(*messages.Neighbors)
-	fmt.Printf("received neighbors: %s\n", neighbors)
+func (n *Node) ExecFindNode(m discv4.Packet) {
+	findNode := m.Data.(*discv4.FindNode)
+	fmt.Printf("received findNode: %s\n", findNode)
+}
+func (n *Node) ExecNeighbors(m discv4.Packet) {
+	neighbors := m.Data.(*discv4.Neighbors)
+	fmt.Printf("received neighbors: %d\n", len(neighbors.Nodes))
+	for _, enode := range neighbors.Nodes {
+		n.AddENode(&enode)
+	}
+	fmt.Println("Total found nodes: ", len(n.GetAllENodes()))
+}
+func (n *Node) ExecENRRequest(m discv4.Packet) {
+	enrRequest := m.Data.(*discv4.ENRRequest)
+	fmt.Printf("received enrRequest: %s\n", enrRequest)
+	// [TODO] respond
+}
+func (n *Node) ExecENRResponse(m discv4.Packet) {
+	enrResponse := m.Data.(*discv4.ENRResponse)
+	fmt.Printf("received enrResponse: %s\n", enrResponse)
 }

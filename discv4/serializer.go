@@ -1,4 +1,4 @@
-package messages
+package discv4
 
 import (
 	"bytes"
@@ -34,6 +34,10 @@ func DeserializePacket(data []byte) (*Packet, error) {
 		p.Data, err = deserializeFindNode(packetData)
 	case 0x04: // Neighbors
 		p.Data, err = deserializeNeighbors(packetData)
+	case 0x05: // ENRRequest
+		p.Data, err = deserializeENRRequest(packetData)
+	case 0x06: // ENRResponse
+		p.Data, err = deserializeENRResponse(packetData)
 	default:
 		return nil, fmt.Errorf("invalid packet type: %x", p.Header.Type)
 	}
@@ -77,6 +81,24 @@ func deserializeNeighbors(data []byte) (*Neighbors, error) {
 	err := stream.Decode(&m)
 	if err != nil {
 		return nil, fmt.Errorf("error deserializing neighbors: " + err.Error())
+	}
+	return &m, nil
+}
+func deserializeENRRequest(data []byte) (*ENRRequest, error) {
+	var m ENRRequest
+	stream := rlp.NewStream(bytes.NewReader(data), 0)
+	err := stream.Decode(&m)
+	if err != nil {
+		return nil, fmt.Errorf("error deserializing ENRRequest: " + err.Error())
+	}
+	return &m, nil
+}
+func deserializeENRResponse(data []byte) (*ENRResponse, error) {
+	var m ENRResponse
+	stream := rlp.NewStream(bytes.NewReader(data), 0)
+	err := stream.Decode(&m)
+	if err != nil {
+		return nil, fmt.Errorf("error deserializing ENRResponse: " + err.Error())
 	}
 	return &m, nil
 }

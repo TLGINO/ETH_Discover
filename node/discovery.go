@@ -2,7 +2,7 @@ package node
 
 import (
 	"fmt"
-	"go_fun/messages"
+	"go_fun/discv4"
 	"strconv"
 	"time"
 )
@@ -18,22 +18,22 @@ func (n *Node) Bind() {
 	myUDPPort := udpConn.GetPort()
 	myTCPPort := tcpConn.GetPort()
 
-	allENodes := n.GetAllENodes()
-	var filteredENodes []*messages.ENode
-	for eNode, state := range allENodes {
-		if state == NotBondedENode {
-			filteredENodes = append(filteredENodes, eNode)
+	allENodeTuples := n.GetAllENodes()
+	var filteredENodes []*discv4.ENode
+	for _, enodeTuple := range allENodeTuples {
+		if enodeTuple.state == NotBondedENode {
+			filteredENodes = append(filteredENodes, &enodeTuple.enode)
 		}
 	}
 
 	for _, eNode := range filteredENodes {
 
-		from := messages.Endpoint{
+		from := discv4.Endpoint{
 			IP:  myIP,
 			UDP: myUDPPort,
 			TCP: myTCPPort,
 		}
-		to := messages.Endpoint{
+		to := discv4.Endpoint{
 			IP:  eNode.IP,
 			UDP: eNode.UDP,
 			TCP: 0,
@@ -41,7 +41,7 @@ func (n *Node) Bind() {
 
 		expiration := uint64(time.Now().Add(50 * time.Second).Unix())
 
-		pingPacket, err := messages.NewPingPacket(4, from, to, expiration)
+		pingPacket, err := discv4.NewPingPacket(4, from, to, expiration)
 		if err != nil {
 			fmt.Print("error creating ping: " + err.Error())
 			continue
@@ -60,7 +60,7 @@ func (n *Node) Bind() {
 			continue
 		}
 
-		ch := make(chan messages.Packet)
+		ch := make(chan discv4.Packet)
 		n.AddAwaitPong(pingPacket.Header.Hash, ch)
 
 		defer func() {
@@ -80,18 +80,18 @@ func (n *Node) Bind() {
 
 func (n *Node) Find() {
 
-	allENodes := n.GetAllENodes()
-	var filteredENodes []*messages.ENode
-	for eNode, state := range allENodes {
-		if state == BondedENode {
-			filteredENodes = append(filteredENodes, eNode)
+	allENodeTuples := n.GetAllENodes()
+	var filteredENodes []*discv4.ENode
+	for _, enodeTuple := range allENodeTuples {
+		if enodeTuple.state == BondedENode {
+			filteredENodes = append(filteredENodes, &enodeTuple.enode)
 		}
 	}
 
 	for _, eNode := range filteredENodes {
 		expiration := uint64(time.Now().Add(50 * time.Second).Unix())
 
-		findNodePacket, err := messages.NewFindNodePacket(expiration)
+		findNodePacket, err := discv4.NewFindNodePacket(expiration)
 		if err != nil {
 			fmt.Print("error creating findNode: " + err.Error())
 			continue

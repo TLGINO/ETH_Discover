@@ -3,9 +3,14 @@ package main
 
 import (
 	"fmt"
+	G "go_fun/global"
 	"go_fun/node"
 	"time"
 )
+
+func init() {
+	G.CreatePK()
+}
 
 func main() {
 	n, err := node.Init()
@@ -22,6 +27,12 @@ func main() {
 		n.Bind()
 		// Find new nodes
 		n.Find()
+		// can probably stop discovery once 10 nodes reached for now
+		numNeigbors := len(n.GetAllENodes())
+		if numNeigbors >= 10 {
+			fmt.Printf("Stopping discovery process, connected to %d nodes\n", numNeigbors)
+			break
+		}
 	}
 
 	select {}

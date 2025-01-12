@@ -3,8 +3,10 @@ package network
 
 import (
 	"fmt"
+	"go_fun/discv4"
 	"go_fun/messages"
 	"net"
+	"strings"
 	"sync"
 )
 
@@ -56,19 +58,39 @@ func (u *UDP) handleConnections() {
 func (u *UDP) handleConnection(data []byte, addr *net.UDPAddr) {
 	u.messageLock.Lock()
 	defer u.messageLock.Unlock()
-	fmt.Printf("Received data (UDP) from: %s size %d\n", addr.String(), len(data))
+	// fmt.Printf("Received data (UDP) from: %s size %d\n", addr.String(), len(data))
 
-	packet, err := messages.DeserializePacket(data)
+	packet, err := discv4.DeserializePacket(data)
 	if err != nil {
 		println("error in received udp data: " + err.Error())
 		return
 	}
 
 	u.registry.ExecCallBack(packet)
-
 }
 
 func (u *UDP) Send(to string, data []byte) error {
+
+	// Check if address contains more than one colon (indicating IPv6)
+	if strings.Count(to, ":") > 1 {
+		// Split the address and port
+		lastColon := strings.LastIndex(to, ":")
+		if lastColon == -1 {
+			return fmt.Errorf("invalid address format: %s", to)
+		}
+
+		ipStr := to[:lastColon]
+		portStr := to[lastColon+1:]
+
+		// If IPv6 address isn't already wrapped in brackets, wrap it
+		if !strings.HasPrefix(ipStr, "[") {
+			ipStr = "[" + ipStr + "]"
+		}
+
+		// Recombine with port
+		to = ipStr + ":" + portStr
+	}
+
 	addr, err := net.ResolveUDPAddr("udp", to)
 	if err != nil {
 		return fmt.Errorf("error resolving UDP address: %v", err)
