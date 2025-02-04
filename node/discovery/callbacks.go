@@ -1,13 +1,12 @@
-package node
+package discovery
 
 import (
+	"eth_discover/discv4"
 	"fmt"
-	"go_fun/discv4"
-	"strconv"
 	"time"
 )
 
-func (n *Node) ExecPing(m discv4.Packet) {
+func (dn *DiscoveryNode) ExecPing(m discv4.Packet, from string) {
 	ping := m.Data.(*discv4.Ping)
 	fmt.Printf("received ping\n")
 
@@ -23,43 +22,54 @@ func (n *Node) ExecPing(m discv4.Packet) {
 		fmt.Printf("error serializing pong: %s\n", err)
 	}
 
-	toAddr := ping.From.IP.String() + ":" + strconv.Itoa(int(ping.From.UDP))
-
-	err = n.SendUDP(toAddr, pongData)
+	err = dn.SendUDP(ping.From.IP, ping.From.UDP, pongData)
 	if err != nil {
 		fmt.Printf("error sending: %s\n", err)
 	}
 }
 
-func (n *Node) ExecPong(m discv4.Packet) {
+func (dn *DiscoveryNode) ExecPong(m discv4.Packet, from string) {
 	pong := m.Data.(*discv4.Pong)
 	fmt.Printf("received pong\n")
 
-	ch := n.GetAwaitPong(pong.PingHash)
+	ch := dn.GetAwaitPong(pong.PingHash)
 	if ch != nil {
-		ch <- m
+		ch <- struct{}{}
 	} else {
-		fmt.Printf("unsolicited pong received")
+		fmt.Printf("unsolicited or delayed pong message received")
 	}
 }
-func (n *Node) ExecFindNode(m discv4.Packet) {
+func (dn *DiscoveryNode) ExecFindNode(m discv4.Packet, from string) {
 	findNode := m.Data.(*discv4.FindNode)
 	fmt.Printf("received findNode: %s\n", findNode)
+	// [TODO] respond
 }
-func (n *Node) ExecNeighbors(m discv4.Packet) {
+func (dn *DiscoveryNode) ExecNeighbors(m discv4.Packet, from string) {
 	neighbors := m.Data.(*discv4.Neighbors)
 	fmt.Printf("received neighbors: %d\n", len(neighbors.Nodes))
+
 	for _, enode := range neighbors.Nodes {
-		n.AddENode(&enode)
+		dn.AddENode(&enode)
 	}
-	fmt.Println("Total found nodes: ", len(n.GetAllENodes()))
+
+	ch := dn.GetAwaitNeighbours(from)
+	if ch != nil {
+		select {
+		case ch <- struct{}{}:
+			// Successfully sent
+		default:
+			fmt.Printf("channel full or closed for neighbour response from %s\n", from)
+		}
+	} else {
+		fmt.Printf("unsolicited or delayed neighbour message received from %s\n", from)
+	}
 }
-func (n *Node) ExecENRRequest(m discv4.Packet) {
+func (dn *DiscoveryNode) ExecENRRequest(m discv4.Packet, from string) {
 	enrRequest := m.Data.(*discv4.ENRRequest)
 	fmt.Printf("received enrRequest: %s\n", enrRequest)
 	// [TODO] respond
 }
-func (n *Node) ExecENRResponse(m discv4.Packet) {
+func (dn *DiscoveryNode) ExecENRResponse(m discv4.Packet, from string) {
 	enrResponse := m.Data.(*discv4.ENRResponse)
 	fmt.Printf("received enrResponse: %s\n", enrResponse)
 }

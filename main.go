@@ -2,9 +2,9 @@
 package main
 
 import (
+	G "eth_discover/global"
+	"eth_discover/node"
 	"fmt"
-	G "go_fun/global"
-	"go_fun/node"
 	"time"
 )
 
@@ -22,18 +22,27 @@ func main() {
 	// Give the server time to start
 	time.Sleep(time.Second)
 
+	discovery_node := n.GetDiscoveryNode()
+	transport_node := n.GetTransportNode()
 	for {
+
 		// Bind to new nodes
-		n.Bind()
+		discovery_node.Bind()
 		// Find new nodes
-		n.Find()
+		discovery_node.Find()
+
 		// can probably stop discovery once 10 nodes reached for now
 		numNeigbors := len(n.GetAllENodes())
+
+		println("\n\n\n NUM:", numNeigbors, "\n\n\n")
+
 		if numNeigbors >= 10 {
 			fmt.Printf("Stopping discovery process, connected to %d nodes\n", numNeigbors)
 			break
 		}
 	}
+
+	transport_node.StartHandShake()
 
 	select {}
 }

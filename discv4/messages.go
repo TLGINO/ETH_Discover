@@ -1,9 +1,10 @@
 package discv4
 
 import (
+	"eth_discover/enr"
+	G "eth_discover/global"
+	"eth_discover/interfaces"
 	"fmt"
-	"go_fun/enr"
-	G "go_fun/global"
 	"net"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -33,12 +34,12 @@ type Endpoint struct {
 	TCP uint16
 }
 
-type ENode struct {
-	IP  net.IP
-	UDP uint16
-	TCP uint16
-	ID  [64]byte // secp256k1 public key
-}
+// type ENode struct {
+// 	IP  net.IP
+// 	UDP uint16
+// 	TCP uint16
+// 	ID  [64]byte // secp256k1 public key
+// }
 
 // -------
 
@@ -87,8 +88,8 @@ func (f FindNode) Type() byte { return 0x03 }
 
 // implements PacketData
 type Neighbors struct {
-	Nodes      []ENode // [[ip, udp-port, tcp-port, node-id], ...]
-	Expiration uint64  // Unix timestamp when this packet expires
+	Nodes      []interfaces.ENode // [[ip, udp-port, tcp-port, node-id], ...]
+	Expiration uint64             // Unix timestamp when this packet expires
 
 	Rest []rlp.RawValue `rlp:"tail"`
 }

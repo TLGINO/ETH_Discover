@@ -1,25 +1,22 @@
-// network/socket.go
-package network
+package discovery
 
 import (
+	"eth_discover/discv4"
 	"fmt"
-	"go_fun/discv4"
-	"go_fun/messages"
 	"net"
 	"strings"
 	"sync"
 )
 
-// implements Connection
 type UDP struct {
 	conn     *net.UDPConn
 	port     uint16
-	registry *messages.Registry // <- dependency injection
+	registry *Registry // <- dependency injection
 
 	messageLock sync.Mutex
 }
 
-func (u *UDP) Init(registry *messages.Registry) error {
+func (u *UDP) Init(registry *Registry) error {
 	u.port = 30303
 	addr := fmt.Sprintf(":%d", u.port)
 
@@ -58,15 +55,13 @@ func (u *UDP) handleConnections() {
 func (u *UDP) handleConnection(data []byte, addr *net.UDPAddr) {
 	u.messageLock.Lock()
 	defer u.messageLock.Unlock()
-	// fmt.Printf("Received data (UDP) from: %s size %d\n", addr.String(), len(data))
 
 	packet, err := discv4.DeserializePacket(data)
 	if err != nil {
 		println("error in received udp data: " + err.Error())
 		return
 	}
-
-	u.registry.ExecCallBack(packet)
+	u.registry.ExecCallBack(packet, addr.IP.String())
 }
 
 func (u *UDP) Send(to string, data []byte) error {

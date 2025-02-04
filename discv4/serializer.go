@@ -11,7 +11,9 @@ import (
 // DeserializePacket deserializes a raw packet into a Packet struct
 func DeserializePacket(data []byte) (*Packet, error) {
 	var p Packet
-
+	if len(data) < 99 {
+		return nil, fmt.Errorf("packet too small")
+	}
 	// Extract header components
 	copy(p.Header.Hash[:], data[0:32])
 	copy(p.Header.Signature[:], data[32:97])

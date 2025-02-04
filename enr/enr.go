@@ -1,7 +1,7 @@
 package enr
 
 import (
-	G "go_fun/global"
+	G "eth_discover/global"
 	"sort"
 
 	"github.com/ethereum/go-ethereum/crypto"
