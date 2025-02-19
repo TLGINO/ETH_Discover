@@ -53,3 +53,15 @@ func (e ENode) String() string {
 		e.ID,
 	)
 }
+
+func (c Config) String() string {
+	return fmt.Sprintf("Config{\n"+
+		"  IP: %v\n"+
+		"  UDP Port: %d\n"+
+		"  TCP Port: %d\n"+
+		"}",
+		c.Ip,
+		c.UdpPort,
+		c.TcpPort,
+	)
+}

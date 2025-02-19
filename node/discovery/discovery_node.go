@@ -5,6 +5,8 @@ import (
 	"net"
 	"strconv"
 	"sync"
+
+	"github.com/rs/zerolog/log"
 )
 
 type DiscoveryNode struct {
@@ -23,7 +25,7 @@ type DiscoveryNode struct {
 	awaitNeighbourLock sync.Mutex
 }
 
-func Init() (*DiscoveryNode, error) {
+func Init(testEnode *interfaces.ENode) (*DiscoveryNode, error) {
 	dn := DiscoveryNode{
 		udp:      new(UDP),
 		registry: &Registry{},
@@ -31,9 +33,6 @@ func Init() (*DiscoveryNode, error) {
 		eNodes:         make(map[[64]byte]interfaces.EnodeTuple),
 		awaitPong:      make(map[[32]byte]chan struct{}),
 		awaitNeighbour: make(map[string]chan struct{}),
-	}
-	if err := dn.udp.Init(dn.registry); err != nil {
-		return nil, err
 	}
 
 	e1 := interfaces.ENode{
@@ -60,11 +59,15 @@ func Init() (*DiscoveryNode, error) {
 		TCP: 0,
 		ID:  [64]byte{0x4a, 0xeb, 0x4a, 0xb6, 0xc1, 0x4b, 0x23, 0xe2, 0xc4, 0xcf, 0xdc, 0xe8, 0x79, 0xc0, 0x4b, 0x07, 0x48, 0xa2, 0x0d, 0x8e, 0x9b, 0x59, 0xe2, 0x5d, 0xed, 0x2a, 0x08, 0x14, 0x3e, 0x26, 0x5c, 0x6c, 0x25, 0x93, 0x6e, 0x74, 0xcb, 0xc8, 0xe6, 0x41, 0xe3, 0x31, 0x2c, 0xa2, 0x88, 0x67, 0x3d, 0x91, 0xf2, 0xf9, 0x3f, 0x8e, 0x27, 0x7d, 0xe3, 0xcf, 0xa4, 0x44, 0xec, 0xda, 0xaf, 0x98, 0x20, 0x52},
 	}
-
-	dn.AddENode(&e1)
-	dn.AddENode(&e2)
-	dn.AddENode(&e3)
-	dn.AddENode(&e4)
+	if testEnode == nil {
+		dn.AddENode(&e1)
+		dn.AddENode(&e2)
+		dn.AddENode(&e3)
+		dn.AddENode(&e4)
+	} else {
+		// populate with test enode
+		dn.AddENode(testEnode)
+	}
 
 	dn.registry.AddCallBack(0x01, dn.ExecPing)
 	dn.registry.AddCallBack(0x02, dn.ExecPong)
@@ -78,16 +81,19 @@ func Init() (*DiscoveryNode, error) {
 
 func (dn *DiscoveryNode) SetNode(n interfaces.NodeInterface) {
 	dn.node = n
+	if err := dn.udp.Init(n.GetConfig().UdpPort, dn.registry); err != nil {
+		log.Err(err).Msg("")
+	}
 }
 
-func (dn *DiscoveryNode) SendUDP(toIP net.IP, toPort uint16, data []byte) error {
+func (dn *DiscoveryNode) SendUDP(toIP net.IP, toPort uint16, data []byte) {
 	var toAddr string
 	if toIP.To4() != nil {
 		toAddr = toIP.String() + ":" + strconv.Itoa(int(toPort))
 	} else {
 		toAddr = "[" + toIP.String() + "]:" + strconv.Itoa(int(toPort))
 	}
-	return dn.udp.Send(toAddr, data)
+	dn.udp.Send(toAddr, data)
 }
 
 //

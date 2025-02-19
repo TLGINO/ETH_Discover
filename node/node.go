@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+
+	"github.com/rs/zerolog/log"
 )
 
 type Node struct {
@@ -25,16 +27,21 @@ type Node struct {
 }
 
 // interface function
-func Init() (*Node, error) {
+func Init(config *interfaces.Config, testEnode *interfaces.ENode) (*Node, error) {
 
-	config := &interfaces.Config{
-		Ip:      getPublicIP(),
-		UdpPort: 30303,
-		TcpPort: 30303,
+	if true {
+		// if config.Ip.String() == "" || config.Ip.String() == "auto" {
+		config.Ip = getPublicIP()
 	}
-	println("MY IP:", config.Ip.String())
+	// config := &interfaces.Config{
+	// 	Ip:      getPublicIP(),
+	// 	UdpPort: 30303,
+	// 	TcpPort: 30303,
+	// }
 
-	discovery_node, err := discovery.Init() // dependency injection
+	log.Info().Msg("Config: " + config.String())
+
+	discovery_node, err := discovery.Init(testEnode) // dependency injection
 	if err != nil {
 		return nil, fmt.Errorf("error creating discovery node: %v", err)
 	}

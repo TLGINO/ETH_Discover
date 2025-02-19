@@ -5,11 +5,12 @@ import (
 	"errors"
 	"eth_discover/interfaces"
 	"eth_discover/rlpx"
-	"fmt"
+	"eth_discover/session"
 	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
+	"github.com/rs/zerolog/log"
 )
 
 func PublicKeyFromBytes(pubKeyBytes [64]byte) (*ecdsa.PublicKey, error) {
@@ -36,7 +37,6 @@ func PublicKeyFromBytes(pubKeyBytes [64]byte) (*ecdsa.PublicKey, error) {
 }
 
 func (tn *TransportNode) StartHandShake() {
-
 	allENodeTuples := tn.node.GetAllENodes()
 	var filteredENodes []*interfaces.ENode
 	for _, enodeTuple := range allENodeTuples {
@@ -44,32 +44,40 @@ func (tn *TransportNode) StartHandShake() {
 		filteredENodes = append(filteredENodes, &enodeTuple.Enode)
 		// }
 	}
-	if len(filteredENodes) == 0 {
-		return
-	}
-	println(len(filteredENodes))
+
 	for _, eNode := range filteredENodes {
 
-		session := tn.sessionManager.AddSession(eNode)
-		recipientPK, err := rlpx.PubkeyToECDSA(session.Enode.ID)
+		session := tn.sessionManager.AddSession(eNode.IP, eNode.TCP)
+		session.SetInitiator() // Set ourselves as the initiator
+
+		recipientPK, err := rlpx.PubkeyToECDSA(eNode.ID)
 		if err != nil {
-			println("HERE ERROR 0", err.Error())
+			log.Err(err).Msg("error converting key")
 			return
 		}
-		authMessage, err := rlpx.CreateAuthBody(session, recipientPK)
+		authMessage, err := rlpx.CreateAuthMessage(session, recipientPK)
 		if err != nil {
-			println("HERE ERROR 1", err.Error())
+			log.Err(err).Msg("error creating auth message")
 			return
 		}
 
-		println(eNode.String())
-
-		err = tn.SendTCP(eNode.IP, eNode.TCP, authMessage)
-		if err != nil {
-			fmt.Print("error sending: " + err.Error())
-			continue
-		}
+		tn.SendTCP(eNode.IP, eNode.TCP, authMessage)
 		time.Sleep(1 * time.Second)
 		continue
+	}
+}
+
+func (tn *TransportNode) TestHello(s *session.Session) {
+
+	var filteredSessions []*session.Session
+	filteredSessions = append(filteredSessions, s)
+
+	for _, session := range filteredSessions {
+		helloFrame, err := rlpx.CreateFrameHello(session)
+		if err != nil {
+			return
+		}
+		ip, port := session.To()
+		tn.SendTCP(ip, port, helloFrame)
 	}
 }

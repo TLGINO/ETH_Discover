@@ -1,0 +1,4 @@
+ip: 127.0.0.1
+udp_port: 30304
+tcp_port: 30304
+private_key: 7f2ba2fa704ac33dd4d4610484fac0da094465c60487a2e1a01b499b34d58938

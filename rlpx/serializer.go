@@ -2,7 +2,8 @@ package rlpx
 
 import (
 	"bytes"
-	"crypto/ecdsa"
+	"crypto/hmac"
+	"crypto/rand"
 
 	"encoding/binary"
 	G "eth_discover/global"
@@ -12,96 +13,202 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/ecies"
 	"github.com/ethereum/go-ethereum/rlp"
-	"golang.org/x/crypto/sha3"
+	"github.com/rs/zerolog/log"
 )
 
-// DeserializePacket deserializes a raw packet into a Packet struct
-func DeserializeAuthPacket(data []byte, session *session.Session) (*AuthPacket, error) {
+func DeserializePacket(data []byte, session *session.Session, found bool) (Packet, byte, error) {
+	// 3 cases
+	// we have received an auth message
+	// we have received an auth-ack message
+	// we have received a frame
+
+	if !found {
+		log.Info().Msg("received auth message")
+		return handleAuthMessage(data, session)
+	} else if !session.IsActive() {
+		log.Info().Msg("received auth-ack message")
+		return handleAuthAck(data, session)
+	} else {
+		log.Info().Msg("received a frame")
+		return handleFrame(data, session)
+	}
+
+}
+func handleAuthMessage(data []byte, session *session.Session) (Packet, byte, error) {
 	var p AuthPacket
 	prefix := data[0:2]
 	p.Size = binary.BigEndian.Uint16(prefix)
 
-	packet := data[2:] // Changed from data[3:]
+	packet := data[2:]
 
-	println("p.Size: ", p.Size, "dataSize: ", len(data), "packet:", len(packet))
-
-	var privateKey ecdsa.PrivateKey
-	privateKey = *G.PRIVATE_KEY
-
-	decrypted, err := ecies.ImportECDSA(&privateKey).Decrypt(packet, nil, prefix)
+	// Decrypt the auth message using our private key
+	decrypted, err := ecies.ImportECDSA(G.PRIVATE_KEY).Decrypt(packet, nil, prefix)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt packet data: %w", err)
-	}
-	if session == nil {
-		authBody, err := deserializeAuthBody(decrypted)
-		if err != nil {
-			return nil, fmt.Errorf("failed to deserialize packet data: %w", err)
-		}
-		p.Body = authBody
-		// [TODO] send authAck here
-	} else {
-		authAck, err := deserializeAuthAck(decrypted)
-		if err != nil {
-			return nil, fmt.Errorf("failed to deserialize packet data: %w", err)
-		}
-		p.Body = authAck
-		println("HEREEEE GOOOOOD", authAck.String())
-
-		// Save Nonce
-		session.RecipientNonce = authAck.Nonce[:]
-
-		// Get ecies recipient ephemeral key and save it
-		ephemeral_ecdsa_public_key, err := PubkeyToECDSA(authAck.RecipientEphemeralKey)
-		if err != nil {
-			return nil, fmt.Errorf("error deriving public key from bytes: %v", err)
-		}
-		session.EphemeralPrivateKey_2 = ecies.ImportECDSAPublic(ephemeral_ecdsa_public_key)
-
-		// Generate ephemeral key and save it
-
-		ephemeralKey, err := session.EphemeralPrivateKey_1.GenerateShared(session.EphemeralPrivateKey_2, sskLen, sskLen)
-		if err != nil {
-			return nil, fmt.Errorf("error generating ephemeral secret: %v", err)
-		}
-
-		// Generate shared secret and save it
-		sharedSecret := crypto.Keccak256(ephemeralKey, crypto.Keccak256(session.RecipientNonce, session.InitiatorNonce))
-		session.SharedSecret = [32]byte(sharedSecret)
-
-		// Generate AES secret and save it
-		aesSecret := crypto.Keccak256(ephemeralKey, sharedSecret)
-		session.AESSecret = [32]byte(aesSecret)
-
-		// Generate MAC secret and save it
-		macSecret := crypto.Keccak256(ephemeralKey, aesSecret)
-		session.MACSecret = [32]byte(macSecret)
-
-		// Generate Ingress and Egress MAC
-
-		mac1 := sha3.NewLegacyKeccak256()
-		mac1.Write(xor(macSecret, session.RecipientNonce))
-		mac1.Write(session.AuthSent)
-		mac2 := sha3.NewLegacyKeccak256()
-		mac2.Write(xor(macSecret, session.InitiatorNonce))
-		mac2.Write(session.AuthSent)
-		if session.IsInitiator {
-			session.EgressMac, session.IngressMac = mac1, mac2
-		} else {
-			session.EgressMac, session.IngressMac = mac2, mac1
-		}
-
-		println("\n\n\nMADE IT TO THE ENDDDDDDD\n\n\n")
+		return nil, 0x00, fmt.Errorf("failed to decrypt packet data: %w", err)
 	}
 
-	return &p, nil
+	// Deserialize the auth message
+	authMessage, err := deserializeAuthMessage(decrypted)
+	if err != nil {
+		return nil, 0x00, fmt.Errorf("failed to deserialize packet data: %w", err)
+	}
+	p.Body = authMessage
+	// Convert initiator's public key bytes to ECDSA public key
+	initiatorPubKey, err := PubkeyToECDSA(authMessage.InitiatorPK)
+	if err != nil {
+		return nil, 0x00, fmt.Errorf("failed to convert initiator public key: %w", err)
+	}
+
+	// Get the static shared secret using our private key and initiator's public key
+	token, err := ecies.ImportECDSA(G.PRIVATE_KEY).GenerateShared(
+		ecies.ImportECDSAPublic(initiatorPubKey),
+		sskLen,
+		sskLen,
+	)
+	if err != nil {
+		return nil, 0x00, fmt.Errorf("failed to generate shared secret: %w", err)
+	}
+
+	// Verify signature (static-shared-secret ^ nonce)
+	signedMsg := xor(token, authMessage.Nonce[:])
+	recoveredPubKeyBytes, err := crypto.Ecrecover(signedMsg, authMessage.Signature[:])
+	if err != nil {
+		return nil, 0x00, fmt.Errorf("failed to recover public key from signature: %w", err)
+	}
+
+	// Convert the recovered public key bytes to ECDSA public key
+	recoveredPubKey, err := crypto.UnmarshalPubkey(recoveredPubKeyBytes)
+	if err != nil {
+		return nil, 0x00, fmt.Errorf("failed to unmarshal recovered public key: %w", err)
+	}
+
+	// Save the remote ephemeral public key to session
+	session.SetRemoteEphemeralPublicKey(ecies.ImportECDSAPublic(recoveredPubKey))
+
+	// Save nonces
+	session.SetInitNonce(authMessage.Nonce[:])
+
+	// Generate recipient nonce
+	recNonce := make([]byte, shaLen)
+	if _, err := rand.Read(recNonce); err != nil {
+		return nil, 0x00, fmt.Errorf("failed to generate recipient nonce: %w", err)
+	}
+	session.SetRecNonce(recNonce)
+
+	// Ephemeral Private Key
+	ephemeralPrivateKey, err := GenerateRandomEphemeralPrivateKey()
+	if err != nil {
+		return nil, 0x00, err
+	}
+	session.SetEphemeralPrivateKey(ephemeralPrivateKey)
+
+	// -----------------------
+	// SECRETS generation is in callback
+
+	// save to auth
+	session.AddAuth(data)
+
+	return p, 0x01, nil
 }
 
-func deserializeAuthBody(data []byte) (*AuthBody, error) {
-	var m AuthBody
+func handleAuthAck(data []byte, session *session.Session) (Packet, byte, error) {
+	var p AuthPacket
+	prefix := data[0:2]
+	p.Size = binary.BigEndian.Uint16(prefix)
+
+	if p.Size > 2048 {
+		return nil, 0x00, fmt.Errorf("auth-ack message too big")
+	}
+
+	packet := data[2 : int(p.Size)+2]
+	decrypted, err := ecies.ImportECDSA(G.PRIVATE_KEY).Decrypt(packet, nil, prefix)
+	if err != nil {
+		return nil, 0x00, fmt.Errorf("failed to decrypt packet data: %w", err)
+	}
+
+	// ---------
+
+	authAck, err := deserializeAuthAck(decrypted)
+	if err != nil {
+		return nil, 0x00, fmt.Errorf("failed to deserialize packet data: %w", err)
+	}
+	p.Body = authAck
+
+	// Save Nonce
+	session.SetRecNonce(authAck.Nonce[:])
+
+	// Get ecies recipient ephemeral key and save it
+	ephemeral_ecdsa_public_key, err := PubkeyToECDSA(authAck.RecipientEphemeralKey)
+	if err != nil {
+		return nil, 0x00, fmt.Errorf("error deriving public key from bytes: %v", err)
+	}
+	session.SetRemoteEphemeralPublicKey(ecies.ImportECDSAPublic(ephemeral_ecdsa_public_key))
+
+	// -----------------------
+	// STATE
+	session.AddAuthAck(data)
+	session.SetActive()
+
+	// -----------------------
+	// SECRETS
+
+	err = GenerateSecrets(session)
+	if err != nil {
+		return nil, 0x00, fmt.Errorf("error generating auth-ack secrets")
+	}
+
+	return p, 0x02, nil
+}
+
+func handleFrame(data []byte, session *session.Session) (Packet, byte, error) {
+	// Frame Header
+	header := data[:32]
+
+	// Verify header MAC.
+	wantHeaderMAC := session.IngressMAC.ComputeHeader(header[:16])
+	if !hmac.Equal(wantHeaderMAC, header[16:]) {
+		return nil, 0x00, fmt.Errorf("incorrect header-mac")
+	}
+
+	// Decrypt the frame header to get the frame size.
+	session.Dec.XORKeyStream(header[:16], header[:16])
+
+	fsize := ReadUint24(header[:16])
+	// Frame size rounded up to 16 byte boundary for padding.
+	rsize := fsize
+	if padding := fsize % 16; padding > 0 {
+		rsize += 16 - padding
+	}
+
+	frame := data[32 : 32+int(rsize)]
+
+	// Validate frame MAC.
+	frameMAC := data[len(data)-16:]
+	wantFrameMAC := session.IngressMAC.ComputeFrame(frame)
+	if !hmac.Equal(wantFrameMAC, frameMAC) {
+		return nil, 0x00, fmt.Errorf("incorrect frame-mac")
+	}
+
+	// Decrypt the frame data.
+	session.Dec.XORKeyStream(frame, frame)
+
+	real_decrypted_frame := frame[:fsize]
+
+	code, data, err := rlp.SplitUint64(real_decrypted_frame)
+	if err != nil {
+		return 0, 0x00, fmt.Errorf("invalid message code: %v", err)
+	}
+	fmt.Printf("\nCODE: %d\n\n", code)
+
+	return nil, 0x03, nil
+}
+
+func deserializeAuthMessage(data []byte) (*AuthMessage, error) {
+	var m AuthMessage
 	stream := rlp.NewStream(bytes.NewReader(data), 0)
 	err := stream.Decode(&m)
 	if err != nil {
-		return nil, fmt.Errorf("error deserializing AuthBody: " + err.Error())
+		return nil, fmt.Errorf("error deserializing Auth: " + err.Error())
 	}
 	return &m, nil
 }
@@ -111,6 +218,15 @@ func deserializeAuthAck(data []byte) (*AuthAck, error) {
 	err := stream.Decode(&m)
 	if err != nil {
 		return nil, fmt.Errorf("error deserializing AuthAck: " + err.Error())
+	}
+	return &m, nil
+}
+func deserializeHello(data []byte) (*FrameHello, error) {
+	var m FrameHello
+	stream := rlp.NewStream(bytes.NewReader(data), 0)
+	err := stream.Decode(&m)
+	if err != nil {
+		return nil, fmt.Errorf("error deserializing FrameHello: " + err.Error())
 	}
 	return &m, nil
 }

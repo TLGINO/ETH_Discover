@@ -2,9 +2,9 @@ package global
 
 import (
 	"crypto/ecdsa"
-	"fmt"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -23,9 +23,21 @@ func CreatePK() {
 
 	pk, err := crypto.GenerateKey()
 	if err != nil {
-		fmt.Println("error generating private key:", err)
+		log.Error().Err(err).Msg("error generating private key")
 		return
 	}
+	PRIVATE_KEY = pk
+	PUBLIC_KEY = &pk.PublicKey
+	COMPRESSED_PUBLIC_KEY = [33]byte(crypto.CompressPubkey(PUBLIC_KEY))
+}
+
+func SetPK(pk *ecdsa.PrivateKey) {
+	// can only call this once
+	if hasBeenCalled {
+		return
+	}
+	hasBeenCalled = true
+
 	PRIVATE_KEY = pk
 	PUBLIC_KEY = &pk.PublicKey
 	COMPRESSED_PUBLIC_KEY = [33]byte(crypto.CompressPubkey(PUBLIC_KEY))

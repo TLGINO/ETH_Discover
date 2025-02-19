@@ -2,8 +2,9 @@ package discovery
 
 import (
 	"eth_discover/discv4"
-	"fmt"
 	"sync"
+
+	"github.com/rs/zerolog/log"
 )
 
 type Registry struct {
@@ -32,5 +33,5 @@ func (r *Registry) ExecCallBack(pd *discv4.Packet, from string) {
 		return
 	}
 
-	fmt.Printf("callback not found for type: %d", pd.Data.Type())
+	log.Error().Msgf("callback not found for type: %d", pd.Data.Type())
 }

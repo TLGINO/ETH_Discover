@@ -5,6 +5,8 @@ import (
 	"eth_discover/interfaces"
 	"fmt"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 // Bind binds a node
@@ -59,22 +61,17 @@ func (dn *DiscoveryNode) Bind() {
 		responses = append(responses, nodeResponse{enode: eNode, hash: pingPacket.Header.Hash, ch: ch})
 		dn.AddAwaitPong(pingPacket.Header.Hash, ch)
 
-		err = dn.SendUDP(eNode.IP, eNode.UDP, pingData)
-		if err != nil {
-			fmt.Print("error sending: " + err.Error())
-			continue
-		}
-
+		dn.SendUDP(eNode.IP, eNode.UDP, pingData)
 	}
 
-	responseTimeout := 500 * time.Millisecond
+	responseTimeout := 700 * time.Millisecond
 	for _, resp := range responses {
 		select {
 		case <-resp.ch:
-			fmt.Printf("Bonded with node: %x\n", resp.enode.ID)
+			log.Info().Msgf("Bonded with node: %x", resp.enode.ID)
 			dn.UpdateENode(resp.enode, interfaces.BondedENode)
 		case <-time.After(responseTimeout):
-			fmt.Println("Timeout waiting for pong response, trying with new node")
+			log.Info().Msg("Timeout waiting for pong response, trying with new node")
 		}
 		// Clean up
 		dn.RemoveAwaitPong(resp.hash)
@@ -117,23 +114,18 @@ func (dn *DiscoveryNode) Find() {
 		responses = append(responses, nodeResponse{enode: eNode, ch: ch})
 		dn.AddAwaitNeighbours(eNode.IP.String(), ch)
 
-		err = dn.SendUDP(eNode.IP, eNode.UDP, findNodeData)
-		if err != nil {
-			fmt.Print("error sending: " + err.Error())
-			dn.RemoveAwaitNeighbours(eNode.IP.String())
-			continue
-		}
+		dn.SendUDP(eNode.IP, eNode.UDP, findNodeData)
 
 	}
 
-	responseTimeout := 500 * time.Millisecond
+	responseTimeout := 700 * time.Millisecond
 	for _, resp := range responses {
 		select {
 		case <-resp.ch:
-			fmt.Printf("Received Neighbours from node %s\n", resp.enode.IP.String())
+			log.Info().Msgf("Received Neighbours from node %s", resp.enode.IP.String())
 			dn.UpdateENode(resp.enode, interfaces.AnsweredFindNode)
 		case <-time.After(responseTimeout):
-			fmt.Printf("Timeout waiting for neighbours from %s\n", resp.enode.IP.String())
+			log.Info().Msgf("Timeout waiting for neighbours from %s", resp.enode.IP.String())
 		}
 		// Clean up
 		dn.RemoveAwaitNeighbours(resp.enode.IP.String())

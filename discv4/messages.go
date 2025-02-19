@@ -34,13 +34,6 @@ type Endpoint struct {
 	TCP uint16
 }
 
-// type ENode struct {
-// 	IP  net.IP
-// 	UDP uint16
-// 	TCP uint16
-// 	ID  [64]byte // secp256k1 public key
-// }
-
 // -------
 
 // implements PacketData

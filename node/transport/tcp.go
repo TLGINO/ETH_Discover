@@ -7,6 +7,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 type TCP struct {
@@ -14,11 +16,13 @@ type TCP struct {
 	connections    map[string]net.Conn // Changed from *net.Conn to net.Conn
 	port           uint16
 	sessionManager *session.SessionManager
-	mutex          sync.RWMutex // Added mutex for thread safety
+	registry       *Registry // <- dependency injection
+
+	mutex sync.RWMutex // Added mutex for thread safety
 }
 
-func (t *TCP) Init(sessionManager *session.SessionManager) error {
-	t.port = 30303
+func (t *TCP) Init(port uint16, registry *Registry, sessionManager *session.SessionManager) error {
+	t.port = port
 	addr := fmt.Sprintf(":%d", t.port)
 
 	listener, err := net.Listen("tcp", addr)
@@ -28,6 +32,7 @@ func (t *TCP) Init(sessionManager *session.SessionManager) error {
 	t.connections = make(map[string]net.Conn)
 	t.listener = listener
 	t.sessionManager = sessionManager
+	t.registry = registry
 
 	go t.handleConnections()
 	return nil
@@ -41,7 +46,7 @@ func (t *TCP) handleConnections() {
 	for {
 		conn, err := t.listener.Accept()
 		if err != nil {
-			fmt.Println("TCP accept error:", err)
+			log.Err(err).Msg("TCP accept error")
 			continue
 		}
 
@@ -65,26 +70,32 @@ func (t *TCP) handleConnection(conn net.Conn) {
 		t.mutex.Unlock()
 	}()
 
-	buf := make([]byte, 1024)
+	buf := make([]byte, 2<<24) // Max 16MiB
 	for {
 		n, err := conn.Read(buf)
 		if err != nil {
-			fmt.Println("TCP read error:", err)
+			log.Err(err).Msg("TCP read error")
 			return
 		}
 
-		session := t.sessionManager.GetSession(ip)
+		var session *session.Session
+		found := true
+		session = t.sessionManager.GetSession(ip)
+		if session == nil {
+			found = false
+			session = t.sessionManager.AddSession(net.ParseIP(ip), uint16(conn.RemoteAddr().(*net.TCPAddr).Port))
+		}
 
-		_, err = rlpx.DeserializeAuthPacket(buf[:n], session)
+		packet, pType, err := rlpx.DeserializePacket(buf[:n], session, found)
 		if err != nil {
-			println("error in received tcp data: " + err.Error())
+			log.Error().Err(err).Msg("error received tcp data")
 			return
 		}
-
+		t.registry.ExecCallBack(packet, pType, session)
 	}
 }
 
-func (t *TCP) Send(to string, data []byte) error {
+func (t *TCP) Send(to string, data []byte) {
 	// Check if we already have a connection to this address
 	var conn net.Conn
 	var err error
@@ -97,7 +108,8 @@ func (t *TCP) Send(to string, data []byte) error {
 		// Create new connection if none exists
 		conn, err = net.DialTimeout("tcp", to, 1*time.Second)
 		if err != nil {
-			return fmt.Errorf("failed to connect to server: %v", err)
+			log.Error().Err(err).Msgf("failed to connect to server")
+			return
 		}
 
 		// Store the new connection
@@ -116,8 +128,7 @@ func (t *TCP) Send(to string, data []byte) error {
 		t.mutex.Lock()
 		delete(t.connections, to)
 		t.mutex.Unlock()
-		return fmt.Errorf("error sending via tcp: %v", err)
+		log.Error().Err(err).Msg("error sending via tcp:")
+		return
 	}
-
-	return nil
 }

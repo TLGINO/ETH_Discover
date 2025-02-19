@@ -6,6 +6,8 @@ import (
 	"net"
 	"strings"
 	"sync"
+
+	"github.com/rs/zerolog/log"
 )
 
 type UDP struct {
@@ -16,8 +18,8 @@ type UDP struct {
 	messageLock sync.Mutex
 }
 
-func (u *UDP) Init(registry *Registry) error {
-	u.port = 30303
+func (u *UDP) Init(port uint16, registry *Registry) error {
+	u.port = port
 	addr := fmt.Sprintf(":%d", u.port)
 
 	udpAddr, err := net.ResolveUDPAddr("udp", addr)
@@ -45,7 +47,7 @@ func (u *UDP) handleConnections() {
 	for {
 		n, addr, err := u.conn.ReadFromUDP(buf)
 		if err != nil {
-			fmt.Println("UDP read error:", err)
+			log.Err(err).Msg("UDP read error")
 			continue
 		}
 		go u.handleConnection(buf[:n], addr)
@@ -58,20 +60,21 @@ func (u *UDP) handleConnection(data []byte, addr *net.UDPAddr) {
 
 	packet, err := discv4.DeserializePacket(data)
 	if err != nil {
-		println("error in received udp data: " + err.Error())
+		log.Error().Err(err).Msg("error received udp data")
 		return
 	}
 	u.registry.ExecCallBack(packet, addr.IP.String())
 }
 
-func (u *UDP) Send(to string, data []byte) error {
+func (u *UDP) Send(to string, data []byte) {
 
 	// Check if address contains more than one colon (indicating IPv6)
 	if strings.Count(to, ":") > 1 {
 		// Split the address and port
 		lastColon := strings.LastIndex(to, ":")
 		if lastColon == -1 {
-			return fmt.Errorf("invalid address format: %s", to)
+			log.Error().Err(fmt.Errorf("invalid address format")).Msgf("invalid address format: %s", to)
+			return
 		}
 
 		ipStr := to[:lastColon]
@@ -88,12 +91,13 @@ func (u *UDP) Send(to string, data []byte) error {
 
 	addr, err := net.ResolveUDPAddr("udp", to)
 	if err != nil {
-		return fmt.Errorf("error resolving UDP address: %v", err)
+		log.Error().Err(err).Msgf("error resolving UDP address: %v", addr)
+		return
 	}
 
 	_, err = u.conn.WriteToUDP(data, addr)
 	if err != nil {
-		return fmt.Errorf("error sending via udp:", err.Error())
+		log.Error().Err(err).Msg("error sending via udp:")
+		return
 	}
-	return nil
 }

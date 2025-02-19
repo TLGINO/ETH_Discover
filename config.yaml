@@ -1,0 +1,4 @@
+ip: 127.0.0.1
+udp_port: 30303
+tcp_port: 30303
+private_key: 61fe062119f23c92d061fc9856140fa13b1250c110fe4da2b48c5679b673d994
