@@ -7,12 +7,10 @@ import (
 	G "eth_discover/global"
 	"eth_discover/session"
 	"fmt"
-	"math/big"
 	mrand "math/rand"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/ecies"
-	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
@@ -27,14 +25,6 @@ const (
 
 type Packet interface{}
 
-type AuthPacket struct {
-	Size uint16
-	Body AuthPacketBody
-}
-
-type AuthPacketBody interface{}
-
-// implements AuthPacket
 type AuthMessage struct {
 	Signature   [sigLen]byte
 	InitiatorPK [pubLen]byte
@@ -44,7 +34,6 @@ type AuthMessage struct {
 	Rest []rlp.RawValue `rlp:"tail"`
 }
 
-// implements AuthPacket
 type AuthAck struct {
 	RecipientEphemeralKey [pubLen]byte
 	Nonce                 [shaLen]byte
@@ -55,15 +44,14 @@ type AuthAck struct {
 
 type Frame struct {
 	HeaderCipherText [sskLen]byte
-	HeaderMac        [sskLen]byte // probs 32 bytes
+	HeaderMac        [sskLen]byte
 	FrameCipherText  []byte
-	FrameMac         [sskLen]byte // probs 32 bytes
+	FrameMac         [sskLen]byte
 }
 
 type FrameContent interface {
-	Type() ([]byte, error)    // RLP encoded type
+	Type() uint64
 	GetData() ([]byte, error) // frame-data = msg-id || msg-data
-
 }
 
 type Cap struct {
@@ -89,13 +77,24 @@ type FrameDisconnect struct {
 	Rest []rlp.RawValue `rlp:"tail"`
 }
 
-func (fh FrameHello) Type() ([]byte, error) {
-	buf, err := rlp.EncodeToBytes(uint64(0x00))
-	if err != nil {
-		return nil, err
-	}
-	return buf, nil
+// implements FrameContent
+type FramePing struct {
+	Rest []rlp.RawValue `rlp:"tail"`
 }
+
+// implements FrameContent
+type FramePong struct {
+	Rest []rlp.RawValue `rlp:"tail"`
+}
+
+func (f Frame) GetBytes() []byte {
+	buf := f.HeaderCipherText[:]
+	buf = append(buf, f.HeaderMac[:]...)
+	buf = append(buf, f.FrameCipherText...)
+	buf = append(buf, f.FrameMac[:]...)
+	return buf
+}
+
 func (fh FrameHello) GetData() ([]byte, error) {
 	buf, err := rlp.EncodeToBytes(fh)
 	if err != nil {
@@ -103,14 +102,8 @@ func (fh FrameHello) GetData() ([]byte, error) {
 	}
 	return buf, nil
 }
+func (fh FrameHello) Type() uint64 { return 0 }
 
-func (fd FrameDisconnect) Type() ([]byte, error) {
-	buf, err := rlp.EncodeToBytes(uint64(0x01))
-	if err != nil {
-		return nil, err
-	}
-	return buf, nil
-}
 func (fd FrameDisconnect) GetData() ([]byte, error) {
 	buf, err := rlp.EncodeToBytes(fd)
 	if err != nil {
@@ -118,38 +111,25 @@ func (fd FrameDisconnect) GetData() ([]byte, error) {
 	}
 	return buf, nil
 }
+func (fd FrameDisconnect) Type() uint64 { return 1 }
 
-//
-// ------------------------------------
-// Helpers
-//
-
-func PubkeyToECDSA(pub [64]byte) (*ecdsa.PublicKey, error) {
-	x := new(big.Int).SetBytes(pub[:32])
-	y := new(big.Int).SetBytes(pub[32:])
-
-	curve := secp256k1.S256()
-
-	if !curve.IsOnCurve(x, y) {
-		return nil, fmt.Errorf("public key point is not on curve")
+func (fpi FramePing) GetData() ([]byte, error) {
+	buf, err := rlp.EncodeToBytes(fpi)
+	if err != nil {
+		return nil, err
 	}
-
-	publicKey := &ecdsa.PublicKey{
-		Curve: curve,
-		X:     x,
-		Y:     y,
-	}
-
-	return publicKey, nil
+	return buf, nil
 }
+func (fpi FramePing) Type() uint64 { return 2 }
 
-func xor(one, other []byte) (xor []byte) {
-	xor = make([]byte, len(one))
-	for i := 0; i < len(one); i++ {
-		xor[i] = one[i] ^ other[i]
+func (fpo FramePong) GetData() ([]byte, error) {
+	buf, err := rlp.EncodeToBytes(fpo)
+	if err != nil {
+		return nil, err
 	}
-	return xor
+	return buf, nil
 }
+func (fpo FramePong) Type() uint64 { return 3 }
 
 //
 // ------------------------------------
@@ -205,22 +185,6 @@ func CreateAuthMessage(session *session.Session, recipientPK *ecdsa.PublicKey) (
 	return data, nil
 }
 
-func createAuth(authPacketBody AuthPacketBody, recipientPK *ecdsa.PublicKey) ([]byte, error) {
-	wbuf, err := rlp.EncodeToBytes(authPacketBody)
-	if err != nil {
-		return nil, err
-	}
-	// Pad with random amount of data. the amount needs to be at least 100 bytes to make
-	// the message distinguishable from pre-EIP-8 handshakes.
-	wbuf = append(wbuf, make([]byte, mrand.Intn(100)+100)...)
-
-	prefix := make([]byte, 2)
-	binary.BigEndian.PutUint16(prefix, uint16(len(wbuf)+eciesOverhead))
-
-	enc, err := ecies.Encrypt(rand.Reader, ecies.ImportECDSAPublic(recipientPK), wbuf, nil, prefix)
-	return append(prefix, enc...), err
-}
-
 func CreateAuthAck(session *session.Session, initiatorPK *ecdsa.PublicKey) ([]byte, error) {
 	// Get the public key bytes from the ephemeral key
 	ephemeralPubKey := crypto.FromECDSAPub(session.GetEphemeralPrivateKey().PublicKey.ExportECDSA())[1:]
@@ -242,38 +206,70 @@ func CreateAuthAck(session *session.Session, initiatorPK *ecdsa.PublicKey) ([]by
 	return data, nil
 }
 
+func createAuth(authPacketBody Packet, recipientPK *ecdsa.PublicKey) ([]byte, error) {
+	wbuf, err := rlp.EncodeToBytes(authPacketBody)
+	if err != nil {
+		return nil, err
+	}
+	// Pad with random amount of data. the amount needs to be at least 100 bytes to make
+	// the message distinguishable from pre-EIP-8 handshakes.
+	wbuf = append(wbuf, make([]byte, mrand.Intn(100)+100)...)
+
+	prefix := make([]byte, 2)
+	binary.BigEndian.PutUint16(prefix, uint16(len(wbuf)+eciesOverhead))
+
+	enc, err := ecies.Encrypt(rand.Reader, ecies.ImportECDSAPublic(recipientPK), wbuf, nil, prefix)
+	return append(prefix, enc...), err
+}
+
 // ------------------------------------
 // Frame
 
 func CreateFrameHello(session *session.Session) ([]byte, error) {
 	publicKeyBytes := crypto.FromECDSAPub(G.PUBLIC_KEY)[1:]
+	cap := Cap{
+		Name:    "eth",
+		Version: 68,
+	}
 	fh := FrameHello{
 		ProtocolVersion: 5,
-		ClientID:        "testing",
-		Capabilities:    nil,
+		ClientID:        "https://www.linkedin.com/in/martin-lettry/", // Don't mind me, just plugging my linkedin
+		Capabilities:    []Cap{cap},                                   // eth/68 for Wire
 		ListenPort:      0,
 		NodeID:          [64]byte(publicKeyBytes),
 	}
-	f, err := CreateFrame(session, fh)
+	f, err := createFrame(session, fh)
 	if err != nil {
 		return nil, err
 	}
-	buf := f.HeaderCipherText[:]
-	buf = append(buf, f.HeaderMac[:]...)
-	buf = append(buf, f.FrameCipherText...)
-	buf = append(buf, f.FrameMac[:]...)
 
-	return buf, nil
+	return f.GetBytes(), nil
 }
 
-func CreateFrame(session *session.Session, frameContent FrameContent) (*Frame, error) {
+func CreateFramePing(session *session.Session) ([]byte, error) {
+	fp := FramePing{}
+	f, err := createFrame(session, fp)
+	if err != nil {
+		return nil, err
+	}
+	return f.GetBytes(), nil
+}
 
+func CreateFramePong(session *session.Session) ([]byte, error) {
+	fp := FramePong{}
+	f, err := createFrame(session, fp)
+	if err != nil {
+		return nil, err
+	}
+	return f.GetBytes(), nil
+}
+
+func createFrame(session *session.Session, frameContent FrameContent) (*Frame, error) {
 	msg_data, err := frameContent.GetData()
 	if err != nil {
 		return nil, err
 	}
-	var b []byte
-	b_id := rlp.AppendUint64(b, 0) // [TODO] CHANGE to message type
+	b_id := rlp.AppendUint64([]byte{}, frameContent.Type())
 	frame_data := append(b_id, msg_data...)
 	frame_size := PutUint24(uint32(len(frame_data)))
 
@@ -302,7 +298,6 @@ func CreateFrame(session *session.Session, frameContent FrameContent) (*Frame, e
 	if padding := len(frame_data) % 16; padding > 0 {
 		padded_len = 16 - padding
 	}
-	// frame_padding := make([]byte, 16-len(frame_data)%16)
 	frame_padding := make([]byte, padded_len)
 	frame_data_padded := append(frame_data, frame_padding...)
 	session.Enc.XORKeyStream(frame_data_padded, frame_data_padded)
@@ -328,17 +323,6 @@ func CreateFrame(session *session.Session, frameContent FrameContent) (*Frame, e
 
 // ------------------------------------
 // Printing
-
-func (a *AuthPacket) String() string {
-	switch body := a.Body.(type) {
-	case *AuthMessage:
-		return body.String()
-	case *AuthAck:
-		return body.String()
-	default:
-		return "Unknown AuthPacketBody"
-	}
-}
 
 func (a *AuthMessage) String() string {
 	return fmt.Sprintf("Signature: %x, InitiatorPK: %x, Nonce: %x, AuthVSN: %d", a.Signature, a.InitiatorPK, a.Nonce, a.AuthVSN)

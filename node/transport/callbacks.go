@@ -8,8 +8,7 @@ import (
 )
 
 func (tn *TransportNode) ExecAuth(m rlpx.Packet, session *session.Session) {
-	authPacket := m.(rlpx.AuthPacket)
-	auth := authPacket.Body.(*rlpx.AuthMessage)
+	auth := m.(rlpx.AuthMessage)
 	log.Info().Msg("received auth")
 
 	initiatorPubKey, err := rlpx.PubkeyToECDSA(auth.InitiatorPK)
@@ -49,19 +48,31 @@ func (tn *TransportNode) ExecAuth(m rlpx.Packet, session *session.Session) {
 	// Sending first Hello Frame
 
 	tn.TestHello(session)
+	session.SetCompressionActive() // if we send and receive a hello, use snappy
 }
 func (tn *TransportNode) ExecAuthAck(m rlpx.Packet, session *session.Session) {
-	// authAck := m.(rlpx.AuthPacket)
+	// authAck := m.(rlpx.AuthAck)
 	log.Info().Msg("received authAck")
+
+	// -----------------------
+	// Sending first Hello Frame
+
+	tn.TestHello(session)
+	session.SetCompressionActive() // if we send and receive a hello, use snappy
 }
 
 func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
-	// switch frame := m.(type) {
-	// case rlpx.FrameHello:
-	// 	fmt.Printf("received hello frame\n")
-	// case rlpx.FrameDisconnect:
-	// 	fmt.Printf("received disconnect frame\n")
-	// default:
-	// 	log.Error().Msg("received unknown frame type")
-	// }
+	f := m.(rlpx.FrameContent)
+
+	switch frame := f.(type) {
+	case *rlpx.FrameHello:
+		log.Info().Msg("received hello frame")
+		session.SetCompressionActive() // if we send and receive a hello, use snappy
+		println(frame.String())
+	case *rlpx.FrameDisconnect:
+		log.Info().Msg("received disconnect frame")
+		println(frame.String())
+	default:
+		log.Warn().Msg("received unknown frame type")
+	}
 }

@@ -26,81 +26,40 @@ func DeserializePacket(data []byte) (*Packet, error) {
 	// Get packet data (everything after the header)
 	packetData := data[98:]
 
-	var err error
+	var resolved_packet PacketData
 	switch p.Header.Type {
 	case 0x01: // Ping
-		p.Data, err = deserializePing(packetData)
+		resolved_packet = &Ping{}
 	case 0x02: // Pong
-		p.Data, err = deserializePong(packetData)
+		resolved_packet = &Pong{}
 	case 0x03: // FindNode
-		p.Data, err = deserializeFindNode(packetData)
+		resolved_packet = &FindNode{}
 	case 0x04: // Neighbors
-		p.Data, err = deserializeNeighbors(packetData)
+		resolved_packet = &Neighbors{}
 	case 0x05: // ENRRequest
-		p.Data, err = deserializeENRRequest(packetData)
+		resolved_packet = &ENRRequest{}
 	case 0x06: // ENRResponse
-		p.Data, err = deserializeENRResponse(packetData)
+		resolved_packet = &ENRResponse{}
 	default:
 		return nil, fmt.Errorf("invalid packet type: %x", p.Header.Type)
 	}
+	err := deserializePacket(packetData, resolved_packet)
 	if err != nil {
 		return nil, fmt.Errorf("failed to deserialize packet data: %w", err)
 	}
+	p.Data = resolved_packet
 
 	return &p, nil
 }
 
-func deserializePing(data []byte) (*Ping, error) {
-	var m Ping
+// ------------------------------------
+// Deserializing
+
+func deserializePacket(data []byte, v interface{}) error {
 	stream := rlp.NewStream(bytes.NewReader(data), 0)
-	err := stream.Decode(&m)
+	err := stream.Decode(v)
 	if err != nil {
-		return nil, fmt.Errorf("error deserializing ping: " + err.Error())
+		return fmt.Errorf("error deserializing: %v", err)
 	}
-	return &m, nil
-}
-func deserializePong(data []byte) (*Pong, error) {
-	var m Pong
-	stream := rlp.NewStream(bytes.NewReader(data), 0)
-	err := stream.Decode(&m)
-	if err != nil {
-		return nil, fmt.Errorf("error deserializing pong: " + err.Error())
-	}
-	return &m, nil
-}
-func deserializeFindNode(data []byte) (*FindNode, error) {
-	var m FindNode
-	stream := rlp.NewStream(bytes.NewReader(data), 0)
-	err := stream.Decode(&m)
-	if err != nil {
-		return nil, fmt.Errorf("error deserializing findNode: " + err.Error())
-	}
-	return &m, nil
-}
-func deserializeNeighbors(data []byte) (*Neighbors, error) {
-	var m Neighbors
-	stream := rlp.NewStream(bytes.NewReader(data), 0)
-	err := stream.Decode(&m)
-	if err != nil {
-		return nil, fmt.Errorf("error deserializing neighbors: " + err.Error())
-	}
-	return &m, nil
-}
-func deserializeENRRequest(data []byte) (*ENRRequest, error) {
-	var m ENRRequest
-	stream := rlp.NewStream(bytes.NewReader(data), 0)
-	err := stream.Decode(&m)
-	if err != nil {
-		return nil, fmt.Errorf("error deserializing ENRRequest: " + err.Error())
-	}
-	return &m, nil
-}
-func deserializeENRResponse(data []byte) (*ENRResponse, error) {
-	var m ENRResponse
-	stream := rlp.NewStream(bytes.NewReader(data), 0)
-	err := stream.Decode(&m)
-	if err != nil {
-		return nil, fmt.Errorf("error deserializing ENRResponse: " + err.Error())
-	}
-	return &m, nil
+	return nil
 }

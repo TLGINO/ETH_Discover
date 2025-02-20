@@ -48,14 +48,6 @@ func (m *HashMAC) ComputeFrame(framedata []byte) []byte {
 }
 
 // compute computes the MAC of a 16-byte 'seed'.
-//
-// To do this, it encrypts the current value of the hash state, then XORs the ciphertext
-// with seed. The obtained value is written back into the hash state and hash output is
-// taken again. The first 16 bytes of the resulting sum are the MAC value.
-//
-// This MAC construction is a horrible, legacy thing.
-
-// And modify your HashMAC.compute method to include more debugging:
 func (m *HashMAC) compute(sum1, seed []byte) []byte {
 	if len(seed) != len(m.aesBuffer) {
 		panic("invalid MAC seed")
@@ -92,9 +84,10 @@ type handShakeState struct {
 }
 
 type Session struct {
-	isActive   bool // Whether handshake phase is over or not
-	EgressMAC  HashMAC
-	IngressMAC HashMAC
+	isActive            bool // Whether handshake phase is over or not
+	isCompressionActive byte // Whether to use snappy or not (post hello)
+	EgressMAC           HashMAC
+	IngressMAC          HashMAC
 
 	peer *peer
 	Enc  cipher.Stream
@@ -129,12 +122,14 @@ func (s *Session) SetEphemeralPrivateKey(k *ecies.PrivateKey) {
 	s.handShakeState.ephemeralPrivateKey = k
 }
 
-func (s *Session) SetRemoteEphemeralPublicKey(k *ecies.PublicKey) {
-	s.handShakeState.remoteEphemeralPublicKey = k
-}
-
 func (s *Session) GetEphemeralPrivateKey() *ecies.PrivateKey {
 	return s.handShakeState.ephemeralPrivateKey
+}
+
+// ----
+
+func (s *Session) SetRemoteEphemeralPublicKey(k *ecies.PublicKey) {
+	s.handShakeState.remoteEphemeralPublicKey = k
 }
 
 func (s *Session) GetRemoteEphemeralPublicKey() *ecies.PublicKey {
@@ -168,6 +163,15 @@ func (s *Session) SetActive() {
 }
 func (s *Session) IsActive() bool {
 	return s.isActive
+}
+
+// ----
+
+func (s *Session) SetCompressionActive() {
+	s.isCompressionActive += 1
+}
+func (s *Session) IsCompressionActive() bool {
+	return s.isCompressionActive == 0x02
 }
 
 // ----

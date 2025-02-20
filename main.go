@@ -118,7 +118,7 @@ func main() {
 
 		log.Info().Msgf("Connected to %d nodes", numNeigbors)
 
-		if numNeigbors >= 10 {
+		if numNeigbors >= 20 {
 			log.Info().Msgf("Stopping discovery process, connected to %d nodes", numNeigbors)
 			break
 		}

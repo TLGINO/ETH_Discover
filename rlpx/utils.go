@@ -3,15 +3,49 @@ package rlpx
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ecdsa"
 	"crypto/rand"
 	sess "eth_discover/session"
 	"fmt"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/ecies"
+	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 	"golang.org/x/crypto/sha3"
 )
 
+//
+// ------------------------------------
+// Helpers
+//
+
+func PubkeyToECDSA(pub [64]byte) (*ecdsa.PublicKey, error) {
+	x := new(big.Int).SetBytes(pub[:32])
+	y := new(big.Int).SetBytes(pub[32:])
+
+	curve := secp256k1.S256()
+
+	if !curve.IsOnCurve(x, y) {
+		return nil, fmt.Errorf("public key point is not on curve")
+	}
+
+	publicKey := &ecdsa.PublicKey{
+		Curve: curve,
+		X:     x,
+		Y:     y,
+	}
+
+	return publicKey, nil
+}
+
+func xor(one, other []byte) (xor []byte) {
+	xor = make([]byte, len(one))
+	for i := 0; i < len(one); i++ {
+		xor[i] = one[i] ^ other[i]
+	}
+	return xor
+}
 func GenerateRandomEphemeralPrivateKey() (*ecies.PrivateKey, error) {
 	randomPrivKey, err := ecies.GenerateKey(rand.Reader, crypto.S256(), nil)
 	if err != nil {

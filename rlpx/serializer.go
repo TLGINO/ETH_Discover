@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/ecies"
 	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/golang/snappy"
 	"github.com/rs/zerolog/log"
 )
 
@@ -35,9 +36,7 @@ func DeserializePacket(data []byte, session *session.Session, found bool) (Packe
 
 }
 func handleAuthMessage(data []byte, session *session.Session) (Packet, byte, error) {
-	var p AuthPacket
 	prefix := data[0:2]
-	p.Size = binary.BigEndian.Uint16(prefix)
 
 	packet := data[2:]
 
@@ -48,11 +47,12 @@ func handleAuthMessage(data []byte, session *session.Session) (Packet, byte, err
 	}
 
 	// Deserialize the auth message
-	authMessage, err := deserializeAuthMessage(decrypted)
+	var authMessage AuthMessage
+	err = deserializePacket(decrypted, &authMessage)
 	if err != nil {
 		return nil, 0x00, fmt.Errorf("failed to deserialize packet data: %w", err)
 	}
-	p.Body = authMessage
+
 	// Convert initiator's public key bytes to ECDSA public key
 	initiatorPubKey, err := PubkeyToECDSA(authMessage.InitiatorPK)
 	if err != nil {
@@ -108,31 +108,29 @@ func handleAuthMessage(data []byte, session *session.Session) (Packet, byte, err
 	// save to auth
 	session.AddAuth(data)
 
-	return p, 0x01, nil
+	return authMessage, 0x01, nil
 }
 
 func handleAuthAck(data []byte, session *session.Session) (Packet, byte, error) {
-	var p AuthPacket
 	prefix := data[0:2]
-	p.Size = binary.BigEndian.Uint16(prefix)
+	size := binary.BigEndian.Uint16(prefix)
 
-	if p.Size > 2048 {
+	if size > 2048 {
 		return nil, 0x00, fmt.Errorf("auth-ack message too big")
 	}
 
-	packet := data[2 : int(p.Size)+2]
+	packet := data[2 : int(size)+2]
 	decrypted, err := ecies.ImportECDSA(G.PRIVATE_KEY).Decrypt(packet, nil, prefix)
 	if err != nil {
 		return nil, 0x00, fmt.Errorf("failed to decrypt packet data: %w", err)
 	}
 
 	// ---------
-
-	authAck, err := deserializeAuthAck(decrypted)
+	var authAck AuthAck
+	err = deserializePacket(decrypted, &authAck)
 	if err != nil {
 		return nil, 0x00, fmt.Errorf("failed to deserialize packet data: %w", err)
 	}
-	p.Body = authAck
 
 	// Save Nonce
 	session.SetRecNonce(authAck.Nonce[:])
@@ -157,7 +155,7 @@ func handleAuthAck(data []byte, session *session.Session) (Packet, byte, error) 
 		return nil, 0x00, fmt.Errorf("error generating auth-ack secrets")
 	}
 
-	return p, 0x02, nil
+	return authAck, 0x02, nil
 }
 
 func handleFrame(data []byte, session *session.Session) (Packet, byte, error) {
@@ -194,39 +192,57 @@ func handleFrame(data []byte, session *session.Session) (Packet, byte, error) {
 
 	real_decrypted_frame := frame[:fsize]
 
-	code, data, err := rlp.SplitUint64(real_decrypted_frame)
+	code, frame_data, err := rlp.SplitUint64(real_decrypted_frame)
 	if err != nil {
 		return 0, 0x00, fmt.Errorf("invalid message code: %v", err)
 	}
-	fmt.Printf("\nCODE: %d\n\n", code)
 
-	return nil, 0x03, nil
+	if session.IsCompressionActive() {
+		// use snappy
+		var actualSize int
+		actualSize, err = snappy.DecodedLen(data)
+		if err != nil {
+			return nil, 0x00, err
+		}
+		if actualSize > 2<<24 {
+			return code, 0x00, fmt.Errorf("message too large")
+		}
+		data, err := snappy.Decode(nil, frame_data)
+		if err != nil {
+			return nil, 0x00, err
+		}
+		frame_data = make([]byte, len(data))
+		copy(frame_data, data)
+	}
+
+	var resolved_frame Packet
+	switch code {
+	case 0:
+		resolved_frame = &FrameHello{}
+	case 1:
+		resolved_frame = &FrameDisconnect{}
+	case 2:
+		resolved_frame = &FramePing{}
+	case 3:
+		resolved_frame = &FramePong{}
+	default:
+		return nil, 0x00, fmt.Errorf("unknown frame type: %d", code)
+	}
+	err = deserializePacket(frame_data, resolved_frame)
+	if err != nil {
+		return nil, 0x00, err
+	}
+	return resolved_frame, 0x03, nil
 }
 
-func deserializeAuthMessage(data []byte) (*AuthMessage, error) {
-	var m AuthMessage
+// ------------------------------------
+// Deserializing
+
+func deserializePacket(data []byte, v interface{}) error {
 	stream := rlp.NewStream(bytes.NewReader(data), 0)
-	err := stream.Decode(&m)
+	err := stream.Decode(v)
 	if err != nil {
-		return nil, fmt.Errorf("error deserializing Auth: " + err.Error())
+		return fmt.Errorf("error deserializing: %v", err)
 	}
-	return &m, nil
-}
-func deserializeAuthAck(data []byte) (*AuthAck, error) {
-	var m AuthAck
-	stream := rlp.NewStream(bytes.NewReader(data), 0)
-	err := stream.Decode(&m)
-	if err != nil {
-		return nil, fmt.Errorf("error deserializing AuthAck: " + err.Error())
-	}
-	return &m, nil
-}
-func deserializeHello(data []byte) (*FrameHello, error) {
-	var m FrameHello
-	stream := rlp.NewStream(bytes.NewReader(data), 0)
-	err := stream.Decode(&m)
-	if err != nil {
-		return nil, fmt.Errorf("error deserializing FrameHello: " + err.Error())
-	}
-	return &m, nil
+	return nil
 }

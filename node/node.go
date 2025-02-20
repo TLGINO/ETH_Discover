@@ -31,7 +31,11 @@ func Init(config *interfaces.Config, testEnode *interfaces.ENode) (*Node, error)
 
 	if true {
 		// if config.Ip.String() == "" || config.Ip.String() == "auto" {
-		config.Ip = getPublicIP()
+		ip, err := getPublicIP()
+		if err != nil {
+			return nil, fmt.Errorf("error getting public ip: %v", err)
+		}
+		config.Ip = ip
 	}
 	// config := &interfaces.Config{
 	// 	Ip:      getPublicIP(),
@@ -92,12 +96,20 @@ func (n *Node) GetTransportNode() *transport.TransportNode {
 	return n.transportNode
 }
 
-func getPublicIP() net.IP {
+func getPublicIP() (net.IP, error) {
 	var ip struct {
 		Query string `json:"query"`
 	}
-	resp, _ := http.Get("http://ip-api.com/json/")
+	resp, err := http.Get("http://ip-api.com/json/")
+	if err != nil {
+		return nil, err
+	}
+
 	defer resp.Body.Close()
-	json.NewDecoder(resp.Body).Decode(&ip)
-	return net.ParseIP(ip.Query)
+	err = json.NewDecoder(resp.Body).Decode(&ip)
+
+	if err != nil {
+		return nil, err
+	}
+	return net.ParseIP(ip.Query), nil
 }
