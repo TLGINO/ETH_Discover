@@ -59,6 +59,18 @@ func (tn *TransportNode) ExecAuthAck(m rlpx.Packet, session *session.Session) {
 
 	tn.TestHello(session)
 	session.SetCompressionActive() // if we send and receive a hello, use snappy
+	if session.IsCompressionActive() {
+		// hello handshake completed
+		// can send eth status
+		status, err := rlpx.CreateStatusMessage(session)
+		if err != nil {
+			log.Err(err).Msg("error creating status message")
+			return
+		}
+		println("SENDING STATUS")
+		ip, port := session.To()
+		tn.SendTCP(ip, port, status)
+	}
 }
 
 func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
@@ -66,12 +78,38 @@ func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
 
 	switch frame := f.(type) {
 	case *rlpx.FrameHello:
-		log.Info().Msg("received hello frame")
-		session.SetCompressionActive() // if we send and receive a hello, use snappy
-		println(frame.String())
+		log.Info().Msgf("received hello frame %v", frame.String())
+
+		// if we send and receive a hello, use snappy
+		session.SetCompressionActive()
+
+		if session.IsCompressionActive() {
+			// hello handshake completed
+			// can send eth status
+			status, err := rlpx.CreateStatusMessage(session)
+			if err != nil {
+				log.Err(err).Msg("error creating status message")
+				return
+			}
+			println("SENDING STATUS")
+			ip, port := session.To()
+			tn.SendTCP(ip, port, status)
+		}
+
 	case *rlpx.FrameDisconnect:
-		log.Info().Msg("received disconnect frame")
-		println(frame.String())
+		log.Info().Msgf("received disconnect frame %v", frame.String())
+
+		// Remove this session
+		ip, _ := session.To()
+		tn.sessionManager.RemoveSession(ip.String())
+	case *rlpx.FramePing:
+		log.Info().Msg("received ping frame")
+	case *rlpx.FramePong:
+		log.Info().Msg("received pong frame")
+	case *rlpx.Status:
+		log.Info().Msgf("received status frame %v", frame.String())
+	case *rlpx.GetReceipts:
+		log.Info().Msgf("received status frame %v", frame.String())
 	default:
 		log.Warn().Msg("received unknown frame type")
 	}

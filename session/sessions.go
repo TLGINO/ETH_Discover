@@ -14,6 +14,8 @@ type SessionManager struct {
 	sessions map[string]*Session
 	lock     sync.Mutex
 }
+
+// Credits to go_ethereum for the mac logic
 type HashMAC struct {
 	cipher     cipher.Block
 	hash       hash.Hash
@@ -138,26 +140,6 @@ func (s *Session) GetRemoteEphemeralPublicKey() *ecies.PublicKey {
 
 // ----
 
-func (s *Session) GetEgressMAC() HashMAC {
-	return s.EgressMAC
-}
-
-func (s *Session) GetIngressMAC() HashMAC {
-	return s.IngressMAC
-}
-
-// ----
-
-func (s *Session) GetEnc() cipher.Stream {
-	return s.Enc
-}
-
-func (s *Session) GetDec() cipher.Stream {
-	return s.Dec
-}
-
-// ----
-
 func (s *Session) SetActive() {
 	s.isActive = true
 }
@@ -171,6 +153,7 @@ func (s *Session) SetCompressionActive() {
 	s.isCompressionActive += 1
 }
 func (s *Session) IsCompressionActive() bool {
+	// we need to both receive and send a hello message -> hence 2
 	return s.isCompressionActive == 0x02
 }
 
@@ -228,6 +211,12 @@ func (sm *SessionManager) AddSession(ip net.IP, tcp_port uint16) *Session {
 	}
 	sm.sessions[ip.String()] = session
 	return session
+}
+
+func (sm *SessionManager) RemoveSession(ip string) {
+	sm.lock.Lock()
+	defer sm.lock.Unlock()
+	delete(sm.sessions, ip)
 }
 
 func (sm *SessionManager) GetAllSessions() []*Session {

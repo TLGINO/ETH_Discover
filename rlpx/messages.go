@@ -7,12 +7,16 @@ import (
 	G "eth_discover/global"
 	"eth_discover/session"
 	"fmt"
+	"math/big"
 	mrand "math/rand"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/ecies"
 	"github.com/ethereum/go-ethereum/rlp"
+	"github.com/golang/snappy"
 )
+
+// credits to go_ethereum rlpx implementation for a lot of this logic
 
 const (
 	sskLen = 16                     // ecies.MaxSharedKeyLength(pubKey) / 2
@@ -40,13 +44,6 @@ type AuthAck struct {
 	AuthVSN               uint
 
 	Rest []rlp.RawValue `rlp:"tail"`
-}
-
-type Frame struct {
-	HeaderCipherText [sskLen]byte
-	HeaderMac        [sskLen]byte
-	FrameCipherText  []byte
-	FrameMac         [sskLen]byte
 }
 
 type FrameContent interface {
@@ -87,49 +84,57 @@ type FramePong struct {
 	Rest []rlp.RawValue `rlp:"tail"`
 }
 
-func (f Frame) GetBytes() []byte {
-	buf := f.HeaderCipherText[:]
-	buf = append(buf, f.HeaderMac[:]...)
-	buf = append(buf, f.FrameCipherText...)
-	buf = append(buf, f.FrameMac[:]...)
-	return buf
+// ETH
+// https://eips.ethereum.org/EIPS/eip-2124
+type ForkID struct {
+	Hash [4]byte // CRC32 checksum of the genesis block and passed fork block numbers
+	Next uint64  // block num of next fork
 }
 
-func (fh FrameHello) GetData() ([]byte, error) {
-	buf, err := rlp.EncodeToBytes(fh)
+// implements FrameContent
+type Status struct {
+	Version         uint32       // 68
+	NetworkID       uint64       // 1 for Mainnet
+	TotalDifficulty *big.Int     // 17,179,869,184
+	BlockHash       [shaLen]byte // Genesis hash
+	Genesis         [shaLen]byte // Genesis hash
+	ForkID          ForkID
+
+	Rest []rlp.RawValue `rlp:"tail"`
+}
+
+// implements FrameContent
+type GetReceipts struct {
+	RequestID   uint64
+	BlockHashes [][shaLen]byte // list of block hashes
+
+	Rest []rlp.RawValue `rlp:"tail"`
+}
+
+func getData(f FrameContent) ([]byte, error) {
+	buf, err := rlp.EncodeToBytes(f)
 	if err != nil {
 		return nil, err
 	}
 	return buf, nil
 }
-func (fh FrameHello) Type() uint64 { return 0 }
+func (f FrameHello) GetData() ([]byte, error) { return getData(f) }
+func (f FrameHello) Type() uint64             { return 0 }
 
-func (fd FrameDisconnect) GetData() ([]byte, error) {
-	buf, err := rlp.EncodeToBytes(fd)
-	if err != nil {
-		return nil, err
-	}
-	return buf, nil
-}
-func (fd FrameDisconnect) Type() uint64 { return 1 }
+func (f FrameDisconnect) GetData() ([]byte, error) { return getData(f) }
+func (f FrameDisconnect) Type() uint64             { return 1 }
 
-func (fpi FramePing) GetData() ([]byte, error) {
-	buf, err := rlp.EncodeToBytes(fpi)
-	if err != nil {
-		return nil, err
-	}
-	return buf, nil
-}
-func (fpi FramePing) Type() uint64 { return 2 }
+func (f FramePing) GetData() ([]byte, error) { return getData(f) }
+func (f FramePing) Type() uint64             { return 2 }
 
-func (fpo FramePong) GetData() ([]byte, error) {
-	buf, err := rlp.EncodeToBytes(fpo)
-	if err != nil {
-		return nil, err
-	}
-	return buf, nil
-}
-func (fpo FramePong) Type() uint64 { return 3 }
+func (f FramePong) GetData() ([]byte, error) { return getData(f) }
+func (f FramePong) Type() uint64             { return 3 }
+
+func (f Status) GetData() ([]byte, error) { return getData(f) }
+func (f Status) Type() uint64             { return 0x10 }
+
+func (f GetReceipts) GetData() ([]byte, error) { return getData(f) }
+func (f GetReceipts) Type() uint64             { return 0x0f }
 
 //
 // ------------------------------------
@@ -231,43 +236,75 @@ func CreateFrameHello(session *session.Session) ([]byte, error) {
 		Name:    "eth",
 		Version: 68,
 	}
+	cap1 := Cap{
+		Name:    "eth",
+		Version: 67,
+	}
+	cap2 := Cap{
+		Name:    "eth",
+		Version: 66,
+	}
 	fh := FrameHello{
 		ProtocolVersion: 5,
 		ClientID:        "https://www.linkedin.com/in/martin-lettry/", // Don't mind me, just plugging my linkedin
-		Capabilities:    []Cap{cap},                                   // eth/68 for Wire
+		Capabilities:    []Cap{cap, cap1, cap2},                       // eth/68 for Wire
 		ListenPort:      0,
 		NodeID:          [64]byte(publicKeyBytes),
 	}
 	f, err := createFrame(session, fh)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error creating hello frame: %v", err)
 	}
-
-	return f.GetBytes(), nil
+	return f, nil
 }
 
 func CreateFramePing(session *session.Session) ([]byte, error) {
 	fp := FramePing{}
 	f, err := createFrame(session, fp)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error creating ping frame: %v", err)
 	}
-	return f.GetBytes(), nil
+	return f, nil
 }
 
 func CreateFramePong(session *session.Session) ([]byte, error) {
 	fp := FramePong{}
 	f, err := createFrame(session, fp)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error creating pong frame: %v", err)
 	}
-	return f.GetBytes(), nil
+	return f, nil
 }
 
-func createFrame(session *session.Session, frameContent FrameContent) (*Frame, error) {
+func CreateStatusMessage(session *session.Session) ([]byte, error) {
+	s := Status{
+		Version:         68,
+		NetworkID:       1,                                                                                                                                                                                                            // 1 for Mainnet
+		TotalDifficulty: big.NewInt(17_179_869_184),                                                                                                                                                                                   // 0 I think
+		BlockHash:       [shaLen]byte{0xd4, 0xe5, 0x67, 0x40, 0xf8, 0x76, 0xae, 0xf8, 0xc0, 0x10, 0xb8, 0x6a, 0x40, 0xd5, 0xf5, 0x67, 0x45, 0xa1, 0x18, 0xd0, 0x90, 0x6a, 0x34, 0xe6, 0x9a, 0xec, 0x8c, 0x0d, 0xb1, 0xcb, 0x8f, 0xa3}, // Genesis hash
+		Genesis:         [shaLen]byte{0xd4, 0xe5, 0x67, 0x40, 0xf8, 0x76, 0xae, 0xf8, 0xc0, 0x10, 0xb8, 0x6a, 0x40, 0xd5, 0xf5, 0x67, 0x45, 0xa1, 0x18, 0xd0, 0x90, 0x6a, 0x34, 0xe6, 0x9a, 0xec, 0x8c, 0x0d, 0xb1, 0xcb, 0x8f, 0xa3}, // Genesis hash
+		ForkID: ForkID{
+			Hash: [4]byte{0xfc, 0x64, 0xec, 0x04},
+			Next: 1150000,
+		},
+	}
+
+	f, err := createFrame(session, s)
+	if err != nil {
+		return nil, fmt.Errorf("error creating status frame: %v", err)
+	}
+
+	return f, nil
+}
+
+func createFrame(session *session.Session, frameContent FrameContent) ([]byte, error) {
 	msg_data, err := frameContent.GetData()
 	if err != nil {
 		return nil, err
+	}
+	if session.IsCompressionActive() {
+		// use snappy
+		msg_data = snappy.Encode(nil, msg_data)
 	}
 	b_id := rlp.AppendUint64([]byte{}, frameContent.Type())
 	frame_data := append(b_id, msg_data...)
@@ -311,14 +348,14 @@ func createFrame(session *session.Session, frameContent FrameContent) (*Frame, e
 	frame_mac := session.EgressMAC.ComputeFrame(frame_data_padded)
 
 	// FRAME
-	frame := &Frame{
-		HeaderCipherText: [sskLen]byte(header),
-		HeaderMac:        [sskLen]byte(header_mac),
-		FrameCipherText:  frame_data_padded,
-		FrameMac:         [sskLen]byte(frame_mac),
-	}
+	lPadded := len(frame_data_padded)
+	buf := make([]byte, sskLen*3+lPadded)
+	copy(buf[0:sskLen], header)
+	copy(buf[sskLen:sskLen*2], header_mac)
+	copy(buf[sskLen*2:sskLen*2+lPadded], frame_data_padded)
+	copy(buf[sskLen*2+lPadded:], frame_mac)
 
-	return frame, nil
+	return buf, nil
 }
 
 // ------------------------------------
@@ -338,4 +375,11 @@ func (fh *FrameHello) String() string {
 
 func (fd *FrameDisconnect) String() string {
 	return fmt.Sprintf("Reason: %d", fd.Reason)
+}
+
+func (s *Status) String() string {
+	return fmt.Sprintf("Version: %d, NetworkID: %d, TotalDifficulty: %s, BlockHash: %x, Genesis: %x, ForkID: %v", s.Version, s.NetworkID, s.TotalDifficulty, s.BlockHash, s.Genesis, s.ForkID)
+}
+func (gr *GetReceipts) String() string {
+	return fmt.Sprintf("RequestID: %d, BlockHashes: %v", gr.RequestID, gr.BlockHashes)
 }

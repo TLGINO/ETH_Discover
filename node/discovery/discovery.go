@@ -9,6 +9,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+var responseTimeout = 700 * time.Millisecond
+
 // Bind binds a node
 // Sends a Ping, awaits a corresponding Pong, returns the address of the binded bootnode
 func (dn *DiscoveryNode) Bind() {
@@ -64,13 +66,15 @@ func (dn *DiscoveryNode) Bind() {
 		dn.SendUDP(eNode.IP, eNode.UDP, pingData)
 	}
 
-	responseTimeout := 700 * time.Millisecond
+	// Wait for request to come back
+	time.Sleep(responseTimeout)
+
 	for _, resp := range responses {
 		select {
 		case <-resp.ch:
 			log.Info().Msgf("Bonded with node: %x", resp.enode.ID)
 			dn.UpdateENode(resp.enode, interfaces.BondedENode)
-		case <-time.After(responseTimeout):
+		default:
 			log.Info().Msg("Timeout waiting for pong response, trying with new node")
 		}
 		// Clean up
@@ -118,13 +122,13 @@ func (dn *DiscoveryNode) Find() {
 
 	}
 
-	responseTimeout := 700 * time.Millisecond
+	time.Sleep(responseTimeout)
 	for _, resp := range responses {
 		select {
 		case <-resp.ch:
 			log.Info().Msgf("Received Neighbours from node %s", resp.enode.IP.String())
 			dn.UpdateENode(resp.enode, interfaces.AnsweredFindNode)
-		case <-time.After(responseTimeout):
+		default:
 			log.Info().Msgf("Timeout waiting for neighbours from %s", resp.enode.IP.String())
 		}
 		// Clean up

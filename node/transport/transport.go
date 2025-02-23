@@ -7,7 +7,6 @@ import (
 	"eth_discover/rlpx"
 	"eth_discover/session"
 	"math/big"
-	"time"
 
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 	"github.com/rs/zerolog/log"
@@ -40,9 +39,7 @@ func (tn *TransportNode) StartHandShake() {
 	allENodeTuples := tn.node.GetAllENodes()
 	var filteredENodes []*interfaces.ENode
 	for _, enodeTuple := range allENodeTuples {
-		// if enodeTuple.state != NotBondedENode {
 		filteredENodes = append(filteredENodes, &enodeTuple.Enode)
-		// }
 	}
 
 	for _, eNode := range filteredENodes {
@@ -62,8 +59,6 @@ func (tn *TransportNode) StartHandShake() {
 		}
 
 		tn.SendTCP(eNode.IP, eNode.TCP, authMessage)
-		time.Sleep(1 * time.Second)
-		continue
 	}
 }
 
@@ -75,6 +70,7 @@ func (tn *TransportNode) TestHello(s *session.Session) {
 	for _, session := range filteredSessions {
 		helloFrame, err := rlpx.CreateFrameHello(session)
 		if err != nil {
+			log.Err(err).Msg("error creating hello frame")
 			return
 		}
 		ip, port := session.To()

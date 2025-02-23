@@ -11,7 +11,6 @@ import (
 	"net"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v2"
@@ -62,12 +61,13 @@ func main() {
 		TcpPort: conf.TcpPort,
 	}
 
-	privateKey, err := crypto.HexToECDSA(conf.PrivateKey)
-	if err != nil {
-		log.Error().Err(err).Msg("invalid private key")
-		return
-	}
-	G.SetPK(privateKey)
+	// privateKey, err := crypto.HexToECDSA(conf.PrivateKey)
+	// if err != nil {
+	// 	log.Error().Err(err).Msg("invalid private key")
+	// 	return
+	// }
+	G.CreatePK()
+	// G.SetPK(privateKey)
 
 	// // parse test node config
 	// test_conf, err := configParser(testConfigPath)
@@ -118,7 +118,7 @@ func main() {
 
 		log.Info().Msgf("Connected to %d nodes", numNeigbors)
 
-		if numNeigbors >= 20 {
+		if numNeigbors >= 60 {
 			log.Info().Msgf("Stopping discovery process, connected to %d nodes", numNeigbors)
 			break
 		}

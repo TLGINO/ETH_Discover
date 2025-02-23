@@ -35,13 +35,14 @@ If a technical eth person stumbles across this, I have some questions / concerns
 ## Roadmap:
  - [WIP] discv4 | for finding nodes [ref](https://github.com/ethereum/devp2p/blob/master/discv4.md)
  - [WIP] enr | store for node info [ref](https://github.com/ethereum/devp2p/blob/master/enr.md)
- - [WIP] rlpx | communicate with nodes [ref](https://github.com/ethereum/devp2p/blob/master/rlpx.md)
+ - [DONE] rlpx | communicate with nodes [ref](https://github.com/ethereum/devp2p/blob/master/rlpx.md)
  - [TODO] wire | get block data from nodes [ref](https://github.com/ethereum/devp2p/blob/master/caps/eth.md)
  - [TODO] database | find the best database / way of storing block data in order to be able to query it super fast
 
 ## TODO:
   - general:
   - discv4:
+    - remove blocking sleep in discovery
     - respond to FindNode messages
     - respond to ENRRequest messages
   - rlpx:

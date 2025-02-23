@@ -196,26 +196,36 @@ func handleFrame(data []byte, session *session.Session) (Packet, byte, error) {
 	if err != nil {
 		return 0, 0x00, fmt.Errorf("invalid message code: %v", err)
 	}
+	println("HERE CODE", code, len(frame_data))
 
+	// use snappy
+	// [TODO] redo buffer stuff here
 	if session.IsCompressionActive() {
-		// use snappy
 		var actualSize int
-		actualSize, err = snappy.DecodedLen(data)
+		actualSize, err = snappy.DecodedLen(frame_data)
 		if err != nil {
 			return nil, 0x00, err
 		}
 		if actualSize > 2<<24 {
 			return code, 0x00, fmt.Errorf("message too large")
 		}
-		data, err := snappy.Decode(nil, frame_data)
+		nData, err := snappy.Decode(nil, frame_data)
 		if err != nil {
 			return nil, 0x00, err
 		}
-		frame_data = make([]byte, len(data))
-		copy(frame_data, data)
+		frame_data = make([]byte, len(nData))
+		copy(frame_data, nData)
 	}
 
 	var resolved_frame Packet
+
+	// Disconnect was sent and was not RLP encoded
+	// Parse that byte directly
+	if code == 1 && len(frame_data) == 1 {
+		resolved_frame = &FrameDisconnect{Reason: uint64(frame_data[0])}
+		return resolved_frame, 0x03, nil
+	}
+
 	switch code {
 	case 0:
 		resolved_frame = &FrameHello{}
@@ -225,13 +235,17 @@ func handleFrame(data []byte, session *session.Session) (Packet, byte, error) {
 		resolved_frame = &FramePing{}
 	case 3:
 		resolved_frame = &FramePong{}
+	case 16:
+		resolved_frame = &Status{}
 	default:
 		return nil, 0x00, fmt.Errorf("unknown frame type: %d", code)
 	}
+
 	err = deserializePacket(frame_data, resolved_frame)
 	if err != nil {
 		return nil, 0x00, err
 	}
+
 	return resolved_frame, 0x03, nil
 }
 
