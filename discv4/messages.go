@@ -114,34 +114,19 @@ func (e ENRResponse) Type() byte { return 0x06 }
 
 //
 // ------------------------------------
-// Packet Serializing
+// Creating Packet
 //
 
-// Serialize returns the serialized data of a Packet obj and an error
-func (p *Packet) Serialize() ([]byte, error) {
-	data, err := rlp.EncodeToBytes(p.Data)
-	if err != nil {
-		return nil, err
-	}
-	packet := make([]byte, 0, 98+len(data)) // Header size + Data size
-	packet = append(packet, p.Header.Hash[:]...)
-	packet = append(packet, p.Header.Signature[:]...)
-	packet = append(packet, p.Data.Type())
-	packet = append(packet, data...)
-
-	return packet, nil
-}
-
-func NewPacket(pd PacketData) (*Packet, error) {
+func NewPacket(pd PacketData) (*Packet, []byte, error) {
 	data, err := rlp.EncodeToBytes(pd)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	to_sign := append([]byte{pd.Type()}, data...)
 	sig, err := crypto.Sign(crypto.Keccak256(to_sign), G.PRIVATE_KEY)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	to_hash := append(sig, to_sign...)
@@ -158,7 +143,13 @@ func NewPacket(pd PacketData) (*Packet, error) {
 		Data:   pd,
 	}
 
-	return &p, nil
+	packet := make([]byte, 0, 98+len(data)) // Header size + Data size
+	packet = append(packet, ph.Hash[:]...)
+	packet = append(packet, ph.Signature[:]...)
+	packet = append(packet, pd.Type())
+	packet = append(packet, data...)
+
+	return &p, packet, nil
 }
 
 //
@@ -166,7 +157,7 @@ func NewPacket(pd PacketData) (*Packet, error) {
 // Creating Packets
 //
 
-func NewPingPacket(version uint64, from Endpoint, to Endpoint, expiration uint64) (*Packet, error) {
+func NewPingPacket(version uint64, from Endpoint, to Endpoint, expiration uint64) (*Packet, []byte, error) {
 	ping := Ping{
 		Version:    version,
 		From:       from,
@@ -176,7 +167,7 @@ func NewPingPacket(version uint64, from Endpoint, to Endpoint, expiration uint64
 	}
 	return NewPacket(ping)
 }
-func NewPongPacket(to Endpoint, hash [32]byte, expiration uint64) (*Packet, error) {
+func NewPongPacket(to Endpoint, hash [32]byte, expiration uint64) (*Packet, []byte, error) {
 	pong := Pong{
 		To:         to,
 		PingHash:   hash,
@@ -185,7 +176,7 @@ func NewPongPacket(to Endpoint, hash [32]byte, expiration uint64) (*Packet, erro
 	}
 	return NewPacket(pong)
 }
-func NewFindNodePacket(expiration uint64) (*Packet, error) {
+func NewFindNodePacket(expiration uint64) (*Packet, []byte, error) {
 
 	publicKeyBytes := crypto.FromECDSAPub(G.PUBLIC_KEY)
 	pubBytes := crypto.Keccak256Hash(publicKeyBytes)
@@ -199,13 +190,13 @@ func NewFindNodePacket(expiration uint64) (*Packet, error) {
 	}
 	return NewPacket(findNode)
 }
-func NewENRRequestPacket(expiration uint64) (*Packet, error) {
+func NewENRRequestPacket(expiration uint64) (*Packet, []byte, error) {
 	enrRequest := ENRRequest{
 		Expiration: expiration,
 	}
 	return NewPacket(enrRequest)
 }
-func NewENRResponsePacket(hash [32]byte, enr enr.ENR) (*Packet, error) {
+func NewENRResponsePacket(hash [32]byte, enr enr.ENR) (*Packet, []byte, error) {
 	enrResponse := ENRResponse{
 		RequestHash: hash,
 		ENR:         enr,

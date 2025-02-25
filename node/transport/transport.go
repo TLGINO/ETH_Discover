@@ -39,8 +39,16 @@ func (tn *TransportNode) StartHandShake() {
 	allENodeTuples := tn.node.GetAllENodes()
 	var filteredENodes []*interfaces.ENode
 	for _, enodeTuple := range allENodeTuples {
-		filteredENodes = append(filteredENodes, &enodeTuple.Enode)
+		if enodeTuple.State == interfaces.AnsweredFindNode {
+			filteredENodes = append(filteredENodes, &enodeTuple.Enode)
+		}
 	}
+
+	defer func() {
+		for _, eNode := range filteredENodes {
+			tn.node.UpdateENode(eNode, interfaces.InitiatedTransport)
+		}
+	}()
 
 	for _, eNode := range filteredENodes {
 
@@ -49,12 +57,12 @@ func (tn *TransportNode) StartHandShake() {
 
 		recipientPK, err := rlpx.PubkeyToECDSA(eNode.ID)
 		if err != nil {
-			log.Err(err).Msg("error converting key")
+			log.Err(err).Str("component", "rlpx").Msg("error converting key")
 			return
 		}
 		authMessage, err := rlpx.CreateAuthMessage(session, recipientPK)
 		if err != nil {
-			log.Err(err).Msg("error creating auth message")
+			log.Err(err).Str("component", "rlpx").Msg("error creating auth message")
 			return
 		}
 
@@ -62,18 +70,12 @@ func (tn *TransportNode) StartHandShake() {
 	}
 }
 
-func (tn *TransportNode) TestHello(s *session.Session) {
-
-	var filteredSessions []*session.Session
-	filteredSessions = append(filteredSessions, s)
-
-	for _, session := range filteredSessions {
-		helloFrame, err := rlpx.CreateFrameHello(session)
-		if err != nil {
-			log.Err(err).Msg("error creating hello frame")
-			return
-		}
-		ip, port := session.To()
-		tn.SendTCP(ip, port, helloFrame)
+func (tn *TransportNode) TestHello(session *session.Session) {
+	helloFrame, err := rlpx.CreateFrameHello(session)
+	if err != nil {
+		log.Err(err).Str("component", "rlpx").Msg("error creating hello frame")
+		return
 	}
+	ip, port := session.To()
+	tn.SendTCP(ip, port, helloFrame)
 }

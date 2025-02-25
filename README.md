@@ -13,16 +13,26 @@ There are ~3 milestone needed in order to sync:
  - Eth/Wire: request block data from ethereum nodes
 
 ### Discovery:
-Discovery seems to work very well. By recursively connecting to nodes and requesting eth peers (IPs / ports), I am able to connect to upwards of 2k nodes (after which I killed the program), which seems to about 1/3 of all eth nodes.
-This seems like a lot to me and in a real scenario would probably only need a lot less connection.
+Discovery seems to work very well. By recursively connecting to nodes and requesting eth peers (IPs / ports), I am able to connect to upwards of 4k nodes.
+
+One issue I'm encountering is that few of these nodes are mainnet nodes and/or are willing to be connected to (rlpx) - hence it seems important to maintain an active background discovery thread in order to maintain a high number of connections.
 
 
 ### RLPx:
 The RLPx part of the protocol is also done. The node can now securely connect to any ethereum node and send data frames.
-I just have some code refactoring to do as it got quite messy - I am not a cryptography expert.
+
+I have some general code refactoring to do, especially around my buffer creation - need to look into the most efficient way of reusing buffers in go.
 
 ### Eth/Wire:
-TODO
+The first 0x00 Status messages have been received and sent!
+Nodes are willing to connect with me and (hopefully TBD) let me download blocks.
+
+One annoying issue I'm encountering is that a lot of random networkIDs seem to be polluting the mainnet DHT, only about 10% of nodes seem to be mainnet and willing to connect.
+
+I get a lot of rlpx disconnects (0x04 too many peers) presumably from mainnet nodes - although I cannot tell as I am unable to exchange Status messages with them.
+
+BSC nodes and strange testnet nodes seem very eager to connect though...
+Notably: 28125, 534352, 137, 369, 100, 56 and 80094 amongst many others
 
 ### Questions:
 If a technical eth person stumbles across this, I have some questions / concerns:
@@ -41,12 +51,20 @@ If a technical eth person stumbles across this, I have some questions / concerns
 
 ## TODO:
   - general:
+    - are there mem leaks??
   - discv4:
-    - remove blocking sleep in discovery
     - respond to FindNode messages
     - respond to ENRRequest messages
   - rlpx:
     - refactor
+
+
+## Rant:
+@EF, why do you hide the details about multiplexing snap and eth messages over rlpx :|
+
+Figuring out the needed baseOffset took me way too long...
+
+
 
 
 ## Credits:

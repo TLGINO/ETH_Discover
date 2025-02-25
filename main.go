@@ -2,96 +2,35 @@
 package main
 
 import (
+	"eth_discover/conf"
 	G "eth_discover/global"
-	"eth_discover/interfaces"
 	"eth_discover/node"
 	"flag"
-	"fmt"
-	"io/ioutil"
-	"net"
+	_ "net/http/pprof"
 	"time"
 
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"gopkg.in/yaml.v2"
 )
 
-type tempConfig struct {
-	Ip         string `yaml:"ip"`
-	UdpPort    uint16 `yaml:"udp_port"`
-	TcpPort    uint16 `yaml:"tcp_port"`
-	PrivateKey string `yaml:"private_key"`
-}
-
-func configParser(path *string) (*tempConfig, error) {
-	// read my config file
-	data, err := ioutil.ReadFile(*path)
-	if err != nil {
-		return nil, fmt.Errorf("error reading config file: %v", err)
-	}
-	var temp tempConfig
-	err = yaml.Unmarshal(data, &temp)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing config file: %v", err)
-	}
-	return &temp, nil
-}
-
 func main() {
-	// LOGGER SETUP
-	zerolog.TimeFieldFormat = ""
-
-	// CONFIG SETUP
-	configPath := flag.String("config", "config.yaml", "path to my node's config file")
-	// testConfigPath := flag.String("test-config", "test_config.yaml", "path to test node's config file")
+	// PARSE ARGS
+	filterComponent := flag.String("component", "", "Filter logs by component name") // eth, discv4
+	configPath := flag.String("config", "", "Set config file")
 	flag.Parse()
 
-	// read my config file
+	// LOGGER SETUP
+	conf.SetupLogger(filterComponent)
 
-	conf, err := configParser(configPath)
+	// CONFIG SETUP
+	config, privateKey, err := conf.SetupConfig(configPath)
 	if err != nil {
-		log.Error().Err(err).Msg("error parsing config file")
+		log.Error().Err(err).Msg("error generating config")
 		return
 	}
-
-	// parse my config values
-	config := &interfaces.Config{
-		Ip:      net.ParseIP(conf.Ip),
-		UdpPort: conf.UdpPort,
-		TcpPort: conf.TcpPort,
-	}
-
-	// privateKey, err := crypto.HexToECDSA(conf.PrivateKey)
-	// if err != nil {
-	// 	log.Error().Err(err).Msg("invalid private key")
-	// 	return
-	// }
-	G.CreatePK()
-	// G.SetPK(privateKey)
-
-	// // parse test node config
-	// test_conf, err := configParser(testConfigPath)
-	// if err != nil {
-	// 	log.Error().Err(err).Msg("error parsing test config file")
-	// 	return
-	// }
-
-	// testPrivateKey, err := crypto.HexToECDSA(test_conf.PrivateKey)
-	// if err != nil {
-	// 	log.Error().Err(err).Msg("invalid other private key")
-	// 	return
-	// }
-
-	// eNode := &interfaces.ENode{
-	// 	IP:  net.ParseIP(test_conf.Ip),
-	// 	UDP: test_conf.UdpPort,
-	// 	TCP: test_conf.TcpPort,
-	// 	ID:  [64]byte(crypto.FromECDSAPub(&testPrivateKey.PublicKey)[1:]),
-	// }
+	G.SetPK(privateKey)
 
 	// NODE SETUP
-	n, err := node.Init(config, nil)
-	// n, err := node.Init(config, eNode)
+	n, err := node.Init(config)
 	if err != nil {
 		log.Error().Err(err).Msg("")
 		return
@@ -102,31 +41,31 @@ func main() {
 
 	discovery_node := n.GetDiscoveryNode()
 	transport_node := n.GetTransportNode()
-	if config.TcpPort == 30303 {
-		select {}
-	}
+
+	// discv4 | Bind to new nodes
+	go func() {
+		for {
+			discovery_node.Bind()
+		}
+	}()
+
+	// discv4 | Find new nodes
+	go func() {
+		for {
+			discovery_node.Find()
+		}
+	}()
+
+	// rlpx | Connect to new nodes
+	go func() {
+		for {
+			transport_node.StartHandShake()
+		}
+	}()
 
 	for {
-
-		// Bind to new nodes
-		discovery_node.Bind()
-		// Find new nodes
-		discovery_node.Find()
-
-		// can probably stop discovery once 10 nodes reached for now
+		time.Sleep(5 * time.Second)
 		numNeigbors := len(n.GetAllENodes())
-
 		log.Info().Msgf("Connected to %d nodes", numNeigbors)
-
-		if numNeigbors >= 60 {
-			log.Info().Msgf("Stopping discovery process, connected to %d nodes", numNeigbors)
-			break
-		}
 	}
-
-	// Start authenticating with nodes
-	time.Sleep(3 * time.Second)
-	transport_node.StartHandShake()
-
-	select {}
 }

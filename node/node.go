@@ -2,15 +2,12 @@
 package node
 
 import (
-	"encoding/json"
 	"eth_discover/enr"
 	G "eth_discover/global"
 	"eth_discover/interfaces"
 	"eth_discover/node/discovery"
 	"eth_discover/node/transport"
 	"fmt"
-	"net"
-	"net/http"
 
 	"github.com/rs/zerolog/log"
 )
@@ -27,25 +24,10 @@ type Node struct {
 }
 
 // interface function
-func Init(config *interfaces.Config, testEnode *interfaces.ENode) (*Node, error) {
-
-	if true {
-		// if config.Ip.String() == "" || config.Ip.String() == "auto" {
-		ip, err := getPublicIP()
-		if err != nil {
-			return nil, fmt.Errorf("error getting public ip: %v", err)
-		}
-		config.Ip = ip
-	}
-	// config := &interfaces.Config{
-	// 	Ip:      getPublicIP(),
-	// 	UdpPort: 30303,
-	// 	TcpPort: 30303,
-	// }
-
+func Init(config *interfaces.Config) (*Node, error) {
 	log.Info().Msg("Config: " + config.String())
 
-	discovery_node, err := discovery.Init(testEnode) // dependency injection
+	discovery_node, err := discovery.Init() // dependency injection
 	if err != nil {
 		return nil, fmt.Errorf("error creating discovery node: %v", err)
 	}
@@ -70,11 +52,6 @@ func Init(config *interfaces.Config, testEnode *interfaces.ENode) (*Node, error)
 	n.enr.Set("udp", config.UdpPort)
 	n.enr.Set("tcp", config.TcpPort)
 
-	n.enr.Set("ip", config.Ip)
-	n.enr.Set("secp256k1", G.COMPRESSED_PUBLIC_KEY)
-	n.enr.Set("udp", config.UdpPort)
-	n.enr.Set("tcp", config.TcpPort)
-
 	return n, nil
 }
 
@@ -88,28 +65,15 @@ func (n *Node) GetAllENodes() []interfaces.EnodeTuple {
 	return n.discoveryNode.GetAllENodes()
 }
 
+// interface function
+func (n *Node) UpdateENode(e *interfaces.ENode, state interfaces.ENodeState) {
+	n.discoveryNode.UpdateENode(e, state)
+}
+
 func (n *Node) GetDiscoveryNode() *discovery.DiscoveryNode {
 	return n.discoveryNode
 }
 
 func (n *Node) GetTransportNode() *transport.TransportNode {
 	return n.transportNode
-}
-
-func getPublicIP() (net.IP, error) {
-	var ip struct {
-		Query string `json:"query"`
-	}
-	resp, err := http.Get("http://ip-api.com/json/")
-	if err != nil {
-		return nil, err
-	}
-
-	defer resp.Body.Close()
-	err = json.NewDecoder(resp.Body).Decode(&ip)
-
-	if err != nil {
-		return nil, err
-	}
-	return net.ParseIP(ip.Query), nil
 }

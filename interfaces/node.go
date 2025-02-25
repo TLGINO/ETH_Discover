@@ -17,6 +17,7 @@ const (
 	NotBondedENode ENodeState = iota
 	BondedENode
 	AnsweredFindNode
+	InitiatedTransport
 )
 
 type EnodeTuple struct {
@@ -33,6 +34,7 @@ type NodeInterface interface {
 	Init() (*NodeInterface, error)
 	GetConfig() *Config
 	GetAllENodes() []EnodeTuple
+	UpdateENode(e *ENode, state ENodeState)
 }
 
 //

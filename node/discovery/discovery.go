@@ -3,13 +3,12 @@ package discovery
 import (
 	"eth_discover/discv4"
 	"eth_discover/interfaces"
-	"fmt"
 	"time"
 
 	"github.com/rs/zerolog/log"
 )
 
-var responseTimeout = 700 * time.Millisecond
+var responseTimeout = 1200 * time.Millisecond
 
 // Bind binds a node
 // Sends a Ping, awaits a corresponding Pong, returns the address of the binded bootnode
@@ -47,19 +46,13 @@ func (dn *DiscoveryNode) Bind() {
 
 		expiration := uint64(time.Now().Add(50 * time.Second).Unix())
 
-		pingPacket, err := discv4.NewPingPacket(4, from, to, expiration)
+		pingPacket, pingData, err := discv4.NewPingPacket(4, from, to, expiration)
 		if err != nil {
-			fmt.Print("error creating ping: " + err.Error())
+			log.Err(err).Str("component", "discv4").Msg("error creating ping")
 			continue
 		}
 
-		pingData, err := pingPacket.Serialize()
-		if err != nil {
-			fmt.Print("error serializing ping: " + err.Error())
-			continue
-		}
-
-		ch := make(chan struct{})
+		ch := make(chan struct{}, 1)
 		responses = append(responses, nodeResponse{enode: eNode, hash: pingPacket.Header.Hash, ch: ch})
 		dn.AddAwaitPong(pingPacket.Header.Hash, ch)
 
@@ -72,10 +65,10 @@ func (dn *DiscoveryNode) Bind() {
 	for _, resp := range responses {
 		select {
 		case <-resp.ch:
-			log.Info().Msgf("Bonded with node: %x", resp.enode.ID)
+			log.Info().Str("component", "discv4").Msgf("Bonded with node: %x", resp.enode.ID)
 			dn.UpdateENode(resp.enode, interfaces.BondedENode)
 		default:
-			log.Info().Msg("Timeout waiting for pong response, trying with new node")
+			log.Info().Str("component", "discv4").Msg("Timeout waiting for pong response, trying with new node")
 		}
 		// Clean up
 		dn.RemoveAwaitPong(resp.hash)
@@ -102,19 +95,13 @@ func (dn *DiscoveryNode) Find() {
 	for _, eNode := range filteredENodes {
 		expiration := uint64(time.Now().Add(50 * time.Second).Unix())
 
-		findNodePacket, err := discv4.NewFindNodePacket(expiration)
+		_, findNodeData, err := discv4.NewFindNodePacket(expiration)
 		if err != nil {
-			fmt.Print("error creating findNode: " + err.Error())
+			log.Err(err).Str("component", "discv4").Msg("error creating findNode")
 			continue
 		}
 
-		findNodeData, err := findNodePacket.Serialize()
-		if err != nil {
-			fmt.Print("error serializing findNode: " + err.Error())
-			continue
-		}
-
-		ch := make(chan struct{})
+		ch := make(chan struct{}, 1)
 		responses = append(responses, nodeResponse{enode: eNode, ch: ch})
 		dn.AddAwaitNeighbours(eNode.IP.String(), ch)
 
@@ -126,10 +113,10 @@ func (dn *DiscoveryNode) Find() {
 	for _, resp := range responses {
 		select {
 		case <-resp.ch:
-			log.Info().Msgf("Received Neighbours from node %s", resp.enode.IP.String())
+			log.Info().Str("component", "discv4").Msgf("Received Neighbours from node %s", resp.enode.IP.String())
 			dn.UpdateENode(resp.enode, interfaces.AnsweredFindNode)
 		default:
-			log.Info().Msgf("Timeout waiting for neighbours from %s", resp.enode.IP.String())
+			log.Info().Str("component", "discv4").Msgf("Timeout waiting for neighbours from %s", resp.enode.IP.String())
 		}
 		// Clean up
 		dn.RemoveAwaitNeighbours(resp.enode.IP.String())

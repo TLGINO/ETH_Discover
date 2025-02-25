@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"sync"
 
 	"github.com/rs/zerolog/log"
 )
@@ -14,8 +13,6 @@ type UDP struct {
 	conn     *net.UDPConn
 	port     uint16
 	registry *Registry // <- dependency injection
-
-	messageLock sync.Mutex
 }
 
 func (u *UDP) Init(port uint16, registry *Registry) error {
@@ -55,9 +52,6 @@ func (u *UDP) handleConnections() {
 }
 
 func (u *UDP) handleConnection(data []byte, addr *net.UDPAddr) {
-	u.messageLock.Lock()
-	defer u.messageLock.Unlock()
-
 	packet, err := discv4.DeserializePacket(data)
 	if err != nil {
 		log.Error().Err(err).Msg("error received udp data")

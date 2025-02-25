@@ -48,8 +48,12 @@ type AuthAck struct {
 
 type FrameContent interface {
 	Type() uint64
-	GetData() ([]byte, error) // frame-data = msg-id || msg-data
 }
+
+//
+// ------------------------------------
+// RLPX
+//
 
 type Cap struct {
 	Name    string
@@ -67,6 +71,10 @@ type FrameHello struct {
 	Rest []rlp.RawValue `rlp:"tail"`
 }
 
+func (f FrameHello) Type() uint64 { return 0 }
+
+// -------
+
 // implements FrameContent
 type FrameDisconnect struct {
 	Reason uint64
@@ -74,17 +82,31 @@ type FrameDisconnect struct {
 	Rest []rlp.RawValue `rlp:"tail"`
 }
 
+func (f FrameDisconnect) Type() uint64 { return 1 }
+
+// -------
+
 // implements FrameContent
 type FramePing struct {
 	Rest []rlp.RawValue `rlp:"tail"`
 }
+
+func (f FramePing) Type() uint64 { return 2 }
+
+// -------
 
 // implements FrameContent
 type FramePong struct {
 	Rest []rlp.RawValue `rlp:"tail"`
 }
 
+func (f FramePong) Type() uint64 { return 3 }
+
+//
+// ------------------------------------
 // ETH
+//
+
 // https://eips.ethereum.org/EIPS/eip-2124
 type ForkID struct {
 	Hash [4]byte // CRC32 checksum of the genesis block and passed fork block numbers
@@ -103,38 +125,7 @@ type Status struct {
 	Rest []rlp.RawValue `rlp:"tail"`
 }
 
-// implements FrameContent
-type GetReceipts struct {
-	RequestID   uint64
-	BlockHashes [][shaLen]byte // list of block hashes
-
-	Rest []rlp.RawValue `rlp:"tail"`
-}
-
-func getData(f FrameContent) ([]byte, error) {
-	buf, err := rlp.EncodeToBytes(f)
-	if err != nil {
-		return nil, err
-	}
-	return buf, nil
-}
-func (f FrameHello) GetData() ([]byte, error) { return getData(f) }
-func (f FrameHello) Type() uint64             { return 0 }
-
-func (f FrameDisconnect) GetData() ([]byte, error) { return getData(f) }
-func (f FrameDisconnect) Type() uint64             { return 1 }
-
-func (f FramePing) GetData() ([]byte, error) { return getData(f) }
-func (f FramePing) Type() uint64             { return 2 }
-
-func (f FramePong) GetData() ([]byte, error) { return getData(f) }
-func (f FramePong) Type() uint64             { return 3 }
-
-func (f Status) GetData() ([]byte, error) { return getData(f) }
-func (f Status) Type() uint64             { return 0x10 }
-
-func (f GetReceipts) GetData() ([]byte, error) { return getData(f) }
-func (f GetReceipts) Type() uint64             { return 0x0f }
+func (f Status) Type() uint64 { return 0x10 }
 
 //
 // ------------------------------------
@@ -246,8 +237,8 @@ func CreateFrameHello(session *session.Session) ([]byte, error) {
 	}
 	fh := FrameHello{
 		ProtocolVersion: 5,
-		ClientID:        "https://www.linkedin.com/in/martin-lettry/", // Don't mind me, just plugging my linkedin
-		Capabilities:    []Cap{cap, cap1, cap2},                       // eth/68 for Wire
+		ClientID:        "linkedin.com/in/martin-lettry/", // Don't mind me, just plugging my linkedin
+		Capabilities:    []Cap{cap, cap1, cap2},           // eth/68 for Wire
 		ListenPort:      0,
 		NodeID:          [64]byte(publicKeyBytes),
 	}
@@ -298,7 +289,7 @@ func CreateStatusMessage(session *session.Session) ([]byte, error) {
 }
 
 func createFrame(session *session.Session, frameContent FrameContent) ([]byte, error) {
-	msg_data, err := frameContent.GetData()
+	msg_data, err := rlp.EncodeToBytes(frameContent)
 	if err != nil {
 		return nil, err
 	}
@@ -379,7 +370,4 @@ func (fd *FrameDisconnect) String() string {
 
 func (s *Status) String() string {
 	return fmt.Sprintf("Version: %d, NetworkID: %d, TotalDifficulty: %s, BlockHash: %x, Genesis: %x, ForkID: %v", s.Version, s.NetworkID, s.TotalDifficulty, s.BlockHash, s.Genesis, s.ForkID)
-}
-func (gr *GetReceipts) String() string {
-	return fmt.Sprintf("RequestID: %d, BlockHashes: %v", gr.RequestID, gr.BlockHashes)
 }

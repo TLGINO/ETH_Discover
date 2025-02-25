@@ -11,7 +11,7 @@ import (
 // DeserializePacket deserializes a raw packet into a Packet struct
 func DeserializePacket(data []byte) (*Packet, error) {
 	var p Packet
-	if len(data) < 99 {
+	if len(data) < 98 {
 		return nil, fmt.Errorf("packet too small")
 	}
 	// Extract header components

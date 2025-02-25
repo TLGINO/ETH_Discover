@@ -14,7 +14,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto/ecies"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/golang/snappy"
-	"github.com/rs/zerolog/log"
 )
 
 func DeserializePacket(data []byte, session *session.Session, found bool) (Packet, byte, error) {
@@ -24,13 +23,10 @@ func DeserializePacket(data []byte, session *session.Session, found bool) (Packe
 	// we have received a frame
 
 	if !found {
-		log.Info().Msg("received auth message")
 		return handleAuthMessage(data, session)
 	} else if !session.IsActive() {
-		log.Info().Msg("received auth-ack message")
 		return handleAuthAck(data, session)
 	} else {
-		log.Info().Msg("received a frame")
 		return handleFrame(data, session)
 	}
 
@@ -50,7 +46,7 @@ func handleAuthMessage(data []byte, session *session.Session) (Packet, byte, err
 	var authMessage AuthMessage
 	err = deserializePacket(decrypted, &authMessage)
 	if err != nil {
-		return nil, 0x00, fmt.Errorf("failed to deserialize packet data: %w", err)
+		return nil, 0x00, fmt.Errorf("failed to deserialize auth-message data: %w", err)
 	}
 
 	// Convert initiator's public key bytes to ECDSA public key
@@ -129,7 +125,7 @@ func handleAuthAck(data []byte, session *session.Session) (Packet, byte, error) 
 	var authAck AuthAck
 	err = deserializePacket(decrypted, &authAck)
 	if err != nil {
-		return nil, 0x00, fmt.Errorf("failed to deserialize packet data: %w", err)
+		return nil, 0x00, fmt.Errorf("failed to deserialize auth-ack data: %w", err)
 	}
 
 	// Save Nonce
@@ -196,7 +192,6 @@ func handleFrame(data []byte, session *session.Session) (Packet, byte, error) {
 	if err != nil {
 		return 0, 0x00, fmt.Errorf("invalid message code: %v", err)
 	}
-	println("HERE CODE", code, len(frame_data))
 
 	// use snappy
 	// [TODO] redo buffer stuff here

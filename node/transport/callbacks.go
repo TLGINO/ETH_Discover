@@ -9,18 +9,18 @@ import (
 
 func (tn *TransportNode) ExecAuth(m rlpx.Packet, session *session.Session) {
 	auth := m.(rlpx.AuthMessage)
-	log.Info().Msg("received auth")
+	log.Info().Str("component", "rlpx").Msg("received auth")
 
 	initiatorPubKey, err := rlpx.PubkeyToECDSA(auth.InitiatorPK)
 	if err != nil {
-		log.Err(err).Msg("failed to convert initiator public key")
+		log.Err(err).Str("component", "rlpx").Msg("failed to convert initiator public key")
 		return
 	}
 	// -----------------------
 	// Create Auth Ack
 	authAckData, err := rlpx.CreateAuthAck(session, initiatorPubKey)
 	if err != nil {
-		log.Err(err).Msg("failed to create auth-ack")
+		log.Err(err).Str("component", "rlpx").Msg("failed to create auth-ack")
 		return
 	}
 
@@ -35,7 +35,7 @@ func (tn *TransportNode) ExecAuth(m rlpx.Packet, session *session.Session) {
 
 	err = rlpx.GenerateSecrets(session)
 	if err != nil {
-		log.Err(err).Msg("error generating auth secrets")
+		log.Err(err).Str("component", "rlpx").Msg("error generating auth secrets")
 		return
 	}
 
@@ -52,7 +52,7 @@ func (tn *TransportNode) ExecAuth(m rlpx.Packet, session *session.Session) {
 }
 func (tn *TransportNode) ExecAuthAck(m rlpx.Packet, session *session.Session) {
 	// authAck := m.(rlpx.AuthAck)
-	log.Info().Msg("received authAck")
+	log.Info().Str("component", "rlpx").Msg("received authAck")
 
 	// -----------------------
 	// Sending first Hello Frame
@@ -64,10 +64,9 @@ func (tn *TransportNode) ExecAuthAck(m rlpx.Packet, session *session.Session) {
 		// can send eth status
 		status, err := rlpx.CreateStatusMessage(session)
 		if err != nil {
-			log.Err(err).Msg("error creating status message")
+			log.Err(err).Str("component", "eth").Msg("error creating status message")
 			return
 		}
-		println("SENDING STATUS")
 		ip, port := session.To()
 		tn.SendTCP(ip, port, status)
 	}
@@ -78,7 +77,7 @@ func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
 
 	switch frame := f.(type) {
 	case *rlpx.FrameHello:
-		log.Info().Msgf("received hello frame %v", frame.String())
+		log.Info().Str("component", "eth").Msgf("received hello frame %v", frame.String())
 
 		// if we send and receive a hello, use snappy
 		session.SetCompressionActive()
@@ -88,29 +87,26 @@ func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
 			// can send eth status
 			status, err := rlpx.CreateStatusMessage(session)
 			if err != nil {
-				log.Err(err).Msg("error creating status message")
+				log.Err(err).Str("component", "eth").Msg("error creating status message")
 				return
 			}
-			println("SENDING STATUS")
 			ip, port := session.To()
 			tn.SendTCP(ip, port, status)
 		}
 
 	case *rlpx.FrameDisconnect:
-		log.Info().Msgf("received disconnect frame %v", frame.String())
+		log.Info().Str("component", "eth").Msgf("received disconnect frame %v", frame.String())
 
 		// Remove this session
 		ip, _ := session.To()
 		tn.sessionManager.RemoveSession(ip.String())
 	case *rlpx.FramePing:
-		log.Info().Msg("received ping frame")
+		log.Info().Str("component", "eth").Msg("received ping frame")
 	case *rlpx.FramePong:
-		log.Info().Msg("received pong frame")
+		log.Info().Str("component", "eth").Msg("received pong frame")
 	case *rlpx.Status:
-		log.Info().Msgf("received status frame %v", frame.String())
-	case *rlpx.GetReceipts:
-		log.Info().Msgf("received status frame %v", frame.String())
+		log.Info().Str("component", "eth").Msgf("received status frame %v", frame.String())
 	default:
-		log.Warn().Msg("received unknown frame type")
+		log.Warn().Str("component", "eth").Msg("received unknown frame type")
 	}
 }
