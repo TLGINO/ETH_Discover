@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/hmac"
 	"crypto/rand"
+	"io"
 
 	"encoding/binary"
 	G "eth_discover/global"
@@ -16,18 +17,20 @@ import (
 	"github.com/golang/snappy"
 )
 
-func DeserializePacket(data []byte, session *session.Session, found bool) (Packet, byte, error) {
+func DeserializePacket(conn io.Reader, session *session.Session, found bool) (Packet, byte, error) {
 	// 3 cases
 	// we have received an auth message
 	// we have received an auth-ack message
 	// we have received a frame
-
+	b := make([]byte, 2<<24) // Max 16MiB
 	if !found {
-		return handleAuthMessage(data, session)
+		n, _ := conn.Read(b)
+		return handleAuthMessage(b[:n], session)
 	} else if !session.IsActive() {
-		return handleAuthAck(data, session)
+		n, _ := conn.Read(b)
+		return handleAuthAck(b[:n], session)
 	} else {
-		return handleFrame(data, session)
+		return handleFrame(conn, session)
 	}
 
 }
@@ -154,12 +157,20 @@ func handleAuthAck(data []byte, session *session.Session) (Packet, byte, error) 
 	return authAck, 0x02, nil
 }
 
-func handleFrame(data []byte, session *session.Session) (Packet, byte, error) {
+func handleFrame(conn io.Reader, session *session.Session) (Packet, byte, error) {
+	session.Rbuf.Reset()
+
+	// fmt.Printf("Frame data: %x\n", data)
+	// fmt.Printf("LEN: %d\n", len(data))
 	// Frame Header
-	header := data[:32]
+	header, err := session.Rbuf.Read(conn, 32)
+	if err != nil {
+		return nil, 0x00, err
+	}
 
 	// Verify header MAC.
 	wantHeaderMAC := session.IngressMAC.ComputeHeader(header[:16])
+
 	if !hmac.Equal(wantHeaderMAC, header[16:]) {
 		return nil, 0x00, fmt.Errorf("incorrect header-mac")
 	}
@@ -168,16 +179,26 @@ func handleFrame(data []byte, session *session.Session) (Packet, byte, error) {
 	session.Dec.XORKeyStream(header[:16], header[:16])
 
 	fsize := ReadUint24(header[:16])
+
 	// Frame size rounded up to 16 byte boundary for padding.
 	rsize := fsize
 	if padding := fsize % 16; padding > 0 {
 		rsize += 16 - padding
 	}
 
-	frame := data[32 : 32+int(rsize)]
+	//
+
+	frame, err := session.Rbuf.Read(conn, int(rsize))
+	if err != nil {
+		return nil, 0x00, err
+	}
 
 	// Validate frame MAC.
-	frameMAC := data[len(data)-16:]
+	frameMAC, err := session.Rbuf.Read(conn, 16)
+	if err != nil {
+		return nil, 0x00, err
+	}
+
 	wantFrameMAC := session.IngressMAC.ComputeFrame(frame)
 	if !hmac.Equal(wantFrameMAC, frameMAC) {
 		return nil, 0x00, fmt.Errorf("incorrect frame-mac")
@@ -192,22 +213,32 @@ func handleFrame(data []byte, session *session.Session) (Packet, byte, error) {
 	if err != nil {
 		return 0, 0x00, fmt.Errorf("invalid message code: %v", err)
 	}
+	fmt.Printf("HERE IS CODE %d\n", code)
 
+	// fmt.Printf("Decrypted Frame Data: %x\n", real_decrypted_frame)
+	// fmt.Printf("Frame Data Before Snappy: %x\n", frame_data)
 	// use snappy
 	// [TODO] redo buffer stuff here
 	if session.IsCompressionActive() {
+		// if session.IsCompressionActive() {
 		var actualSize int
 		actualSize, err = snappy.DecodedLen(frame_data)
 		if err != nil {
 			return nil, 0x00, err
 		}
+		// println("Actual size:", actualSize)
 		if actualSize > 2<<24 {
 			return code, 0x00, fmt.Errorf("message too large")
 		}
+		// frame_data = bytes.TrimRight(frame_data, "\x00")
+
 		nData, err := snappy.Decode(nil, frame_data)
 		if err != nil {
+			// println("HERE ERROR SNAPPY")
 			return nil, 0x00, err
 		}
+		// fmt.Printf("NDATA: %x\n", nData)
+
 		frame_data = make([]byte, len(nData))
 		copy(frame_data, nData)
 	}
@@ -232,6 +263,14 @@ func handleFrame(data []byte, session *session.Session) (Packet, byte, error) {
 		resolved_frame = &FramePong{}
 	case 16:
 		resolved_frame = &Status{}
+	case 19:
+		resolved_frame = &GetBlockHeaders{}
+	case 21:
+		resolved_frame = &GetBlockBodies{}
+	case 22:
+		resolved_frame = &BlockBodies{}
+	case 24:
+		return nil, 0x00, fmt.Errorf("FRAME 24 RECEIVED, GOOD PRE")
 	default:
 		return nil, 0x00, fmt.Errorf("unknown frame type: %d", code)
 	}

@@ -4,6 +4,7 @@ import (
 	"crypto/cipher"
 	"fmt"
 	"hash"
+	"io"
 	"net"
 	"sync"
 
@@ -64,6 +65,57 @@ func (m *HashMAC) compute(sum1, seed []byte) []byte {
 	return sum2[:16]
 }
 
+type readBuffer struct {
+	data []byte
+	end  int
+}
+
+// reset removes all processed data which was read since the last call to reset.
+// After reset, len(b.data) is zero.
+func (b *readBuffer) Reset() {
+	unprocessed := b.end - len(b.data)
+	copy(b.data[:unprocessed], b.data[len(b.data):b.end])
+	b.end = unprocessed
+	b.data = b.data[:0]
+}
+
+// read reads at least n bytes from r, returning the bytes.
+// The returned slice is valid until the next call to reset.
+func (b *readBuffer) Read(r io.Reader, n int) ([]byte, error) {
+	offset := len(b.data)
+	have := b.end - len(b.data)
+
+	// If n bytes are available in the buffer, there is no need to read from r at all.
+	if have >= n {
+		b.data = b.data[:offset+n]
+		return b.data[offset : offset+n], nil
+	}
+
+	// Make buffer space available.
+	need := n - have
+	b.Grow(need)
+
+	// Read.
+	rn, err := io.ReadAtLeast(r, b.data[b.end:cap(b.data)], need)
+	if err != nil {
+		return nil, err
+	}
+	b.end += rn
+	b.data = b.data[:offset+n]
+	return b.data[offset : offset+n], nil
+}
+
+// grow ensures the buffer has at least n bytes of unused space.
+func (b *readBuffer) Grow(n int) {
+	if cap(b.data)-b.end >= n {
+		return
+	}
+	need := n - (cap(b.data) - b.end)
+	offset := len(b.data)
+	b.data = append(b.data[:cap(b.data)], make([]byte, need)...)
+	b.data = b.data[:offset]
+}
+
 type peer struct {
 	IP  net.IP
 	TCP uint16
@@ -88,12 +140,15 @@ type handShakeState struct {
 type Session struct {
 	isActive            bool // Whether handshake phase is over or not
 	isCompressionActive byte // Whether to use snappy or not (post hello)
+	isBondedActive      byte // Whether have bonded (post status)
 	EgressMAC           HashMAC
 	IngressMAC          HashMAC
 
 	peer *peer
 	Enc  cipher.Stream
 	Dec  cipher.Stream
+
+	Rbuf readBuffer
 
 	// Deleted in Cleanup once handshake is over
 	handShakeState *handShakeState
@@ -155,6 +210,16 @@ func (s *Session) SetCompressionActive() {
 func (s *Session) IsCompressionActive() bool {
 	// we need to both receive and send a hello message -> hence 2
 	return s.isCompressionActive == 0x02
+}
+
+// ----
+
+func (s *Session) SetBonded() {
+	s.isBondedActive += 1
+}
+func (s *Session) IsBonded() bool {
+	// we need to both receive and send a status message -> hence 2
+	return s.isBondedActive == 0x02
 }
 
 // ----

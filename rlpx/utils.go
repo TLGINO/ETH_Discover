@@ -7,11 +7,14 @@ import (
 	"crypto/rand"
 	sess "eth_discover/session"
 	"fmt"
+	"io"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/ecies"
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
+	"github.com/ethereum/go-ethereum/rlp"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -132,4 +135,74 @@ func PutUint24(v uint32) [3]byte {
 	b[1] = byte(v >> 8)
 	b[2] = byte(v)
 	return b
+}
+
+// EncodeRLP is a specialized encoder for HashOrNumber to encode only one of the
+// two contained union fields.
+func (hn *HashOrNumber) EncodeRLP(w io.Writer) error {
+	if hn.Hash == (common.Hash{}) {
+		return rlp.Encode(w, hn.Number)
+	}
+	if hn.Number != 0 {
+		return fmt.Errorf("both origin hash (%x) and number (%d) provided", hn.Hash, hn.Number)
+	}
+	return rlp.Encode(w, hn.Hash)
+}
+
+// DecodeRLP is a specialized decoder for HashOrNumber to decode the contents
+// into either a block hash or a block number.
+func (hn *HashOrNumber) DecodeRLP(s *rlp.Stream) error {
+	_, size, err := s.Kind()
+	switch {
+	case err != nil:
+		return err
+	case size == 32:
+		hn.Number = 0
+		return s.Decode(&hn.Hash)
+	case size <= 8:
+		hn.Hash = common.Hash{}
+		return s.Decode(&hn.Number)
+	default:
+		return fmt.Errorf("invalid input size %d for origin", size)
+	}
+}
+
+func HexToBytes(hash string) ([]byte, error) {
+	if len(hash)%2 != 0 {
+		return nil, fmt.Errorf("invalid hash length")
+	}
+	bytes := make([]byte, len(hash)/2)
+	for i := 0; i < len(bytes); i++ {
+		var err error
+		bytes[i], err = hexToByte(hash[i*2], hash[i*2+1])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return bytes, nil
+}
+
+func hexToByte(high, low byte) (byte, error) {
+	h, err := fromHexChar(high)
+	if err != nil {
+		return 0, err
+	}
+	l, err := fromHexChar(low)
+	if err != nil {
+		return 0, err
+	}
+	return h<<4 | l, nil
+}
+
+func fromHexChar(c byte) (byte, error) {
+	switch {
+	case '0' <= c && c <= '9':
+		return c - '0', nil
+	case 'a' <= c && c <= 'f':
+		return c - 'a' + 10, nil
+	case 'A' <= c && c <= 'F':
+		return c - 'A' + 10, nil
+	default:
+		return 0, fmt.Errorf("invalid hex character: %c", c)
+	}
 }

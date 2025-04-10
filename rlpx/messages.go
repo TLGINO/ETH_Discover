@@ -10,6 +10,8 @@ import (
 	"math/big"
 	mrand "math/rand"
 
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/ecies"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -115,17 +117,79 @@ type ForkID struct {
 
 // implements FrameContent
 type Status struct {
-	Version         uint32       // 68
-	NetworkID       uint64       // 1 for Mainnet
-	TotalDifficulty *big.Int     // 17,179,869,184
-	BlockHash       [shaLen]byte // Genesis hash
-	Genesis         [shaLen]byte // Genesis hash
+	Version         uint32
+	NetworkID       uint64
+	TotalDifficulty *big.Int
+	BlockHash       [shaLen]byte
+	Genesis         [shaLen]byte
 	ForkID          ForkID
 
 	Rest []rlp.RawValue `rlp:"tail"`
 }
 
 func (f Status) Type() uint64 { return 0x10 }
+
+// -------
+
+type HashOrNumber struct {
+	Hash   common.Hash // Block hash from which to retrieve headers (excludes Number)
+	Number uint64      // Block hash from which to retrieve headers (excludes Hash)
+}
+
+// implements FrameContent
+type GetBlockHeadersRequest struct {
+	Origin  HashOrNumber // Block from which to retrieve headers
+	Amount  uint64       // Maximum number of headers to retrieve
+	Skip    uint64       // Blocks to skip between consecutive headers
+	Reverse bool         // Query direction (false = rising towards latest, true = falling towards genesis)
+}
+
+type GetBlockHeaders struct {
+	RequestId uint64
+	*GetBlockHeadersRequest
+}
+
+func (f GetBlockHeaders) Type() uint64 { return 0x19 }
+
+// -------
+
+// implements FrameContent
+type GetBlockBodies struct {
+	RequestID   uint64
+	BlockHashes [][shaLen]byte
+
+	Rest []rlp.RawValue `rlp:"tail"`
+}
+
+func (f GetBlockBodies) Type() uint64 { return 0x15 }
+
+// -------
+
+type BBody struct {
+	Transactions []*types.Transaction // Transactions contained within a block
+	Uncles       []*types.Header      // Uncles contained within a block
+	Withdrawals  []*types.Withdrawal  `rlp:"optional"` // Withdrawals contained within a block
+}
+
+// implements FrameContent
+type BlockBodies struct {
+	RequestID uint64
+	BBodies   []*BBody
+
+	Rest []rlp.RawValue `rlp:"tail"`
+}
+
+func (f BlockBodies) Type() uint64 { return 0x16 }
+
+// -------
+
+// implements FrameContent
+type NewBlockPacket struct {
+	Block *types.Block
+	TD    *big.Int
+}
+
+func (f NewBlockPacket) Type() uint64 { return 0x24 }
 
 //
 // ------------------------------------
@@ -227,18 +291,10 @@ func CreateFrameHello(session *session.Session) ([]byte, error) {
 		Name:    "eth",
 		Version: 68,
 	}
-	cap1 := Cap{
-		Name:    "eth",
-		Version: 67,
-	}
-	cap2 := Cap{
-		Name:    "eth",
-		Version: 66,
-	}
 	fh := FrameHello{
 		ProtocolVersion: 5,
 		ClientID:        "linkedin.com/in/martin-lettry/", // Don't mind me, just plugging my linkedin
-		Capabilities:    []Cap{cap, cap1, cap2},           // eth/68 for Wire
+		Capabilities:    []Cap{cap},
 		ListenPort:      0,
 		NodeID:          [64]byte(publicKeyBytes),
 	}
@@ -268,12 +324,36 @@ func CreateFramePong(session *session.Session) ([]byte, error) {
 }
 
 func CreateStatusMessage(session *session.Session) ([]byte, error) {
+
+	genesis, err := HexToBytes("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
+	if err != nil {
+		return nil, fmt.Errorf("error creating hex bytes block: %v", err)
+	}
+
+	// This is ~current
+	// hexBlockHash, err := HexToBytes("a8e6390f684942d68a1cb8b6ed381131ab7eaa83b4b4d900cec76dfb52569412")
+	// if err != nil {
+	// 	return nil, fmt.Errorf("error creating hex bytes block: %v", err)
+	// }
+	// s := Status{
+	// 	Version:         68,
+	// 	NetworkID:       1,             // 1 for Mainnet
+	// 	TotalDifficulty: big.NewInt(0), // 0 I think
+	// 	BlockHash:       [shaLen]byte(hexBlockHash),
+	// 	Genesis:         [shaLen]byte(genesis),
+	// 	ForkID: ForkID{
+	// 		Hash: [4]byte{0x9f, 0x3d, 0x22, 0x54},
+	// 		Next: 0,
+	// 	},
+	// }
+
+	// This is perfect for sync
 	s := Status{
 		Version:         68,
-		NetworkID:       1,                                                                                                                                                                                                            // 1 for Mainnet
-		TotalDifficulty: big.NewInt(17_179_869_184),                                                                                                                                                                                   // 0 I think
-		BlockHash:       [shaLen]byte{0xd4, 0xe5, 0x67, 0x40, 0xf8, 0x76, 0xae, 0xf8, 0xc0, 0x10, 0xb8, 0x6a, 0x40, 0xd5, 0xf5, 0x67, 0x45, 0xa1, 0x18, 0xd0, 0x90, 0x6a, 0x34, 0xe6, 0x9a, 0xec, 0x8c, 0x0d, 0xb1, 0xcb, 0x8f, 0xa3}, // Genesis hash
-		Genesis:         [shaLen]byte{0xd4, 0xe5, 0x67, 0x40, 0xf8, 0x76, 0xae, 0xf8, 0xc0, 0x10, 0xb8, 0x6a, 0x40, 0xd5, 0xf5, 0x67, 0x45, 0xa1, 0x18, 0xd0, 0x90, 0x6a, 0x34, 0xe6, 0x9a, 0xec, 0x8c, 0x0d, 0xb1, 0xcb, 0x8f, 0xa3}, // Genesis hash
+		NetworkID:       1,                       // 1 for Mainnet
+		TotalDifficulty: big.NewInt(17179869184), // 0 I think
+		BlockHash:       [shaLen]byte(genesis),
+		Genesis:         [shaLen]byte(genesis),
 		ForkID: ForkID{
 			Hash: [4]byte{0xfc, 0x64, 0xec, 0x04},
 			Next: 1150000,
@@ -283,6 +363,46 @@ func CreateStatusMessage(session *session.Session) ([]byte, error) {
 	f, err := createFrame(session, s)
 	if err != nil {
 		return nil, fmt.Errorf("error creating status frame: %v", err)
+	}
+
+	return f, nil
+}
+func CreateFrameGetBlockHeaders(session *session.Session) ([]byte, error) {
+	gbh := GetBlockHeaders{
+		RequestId: 18034466903846788292,
+		GetBlockHeadersRequest: &GetBlockHeadersRequest{
+			Origin:  HashOrNumber{common.Hash{}, 22189093},
+			Amount:  512,
+			Skip:    0,
+			Reverse: true,
+		},
+	}
+
+	f, err := createFrame(session, gbh)
+	if err != nil {
+		return nil, fmt.Errorf("error creating getBlockHeaders frame: %v", err)
+	}
+
+	return f, nil
+}
+func CreateFrameGetBlockBodies(session *session.Session) ([]byte, error) {
+	// genesis, err := HexToBytes("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
+	// if err != nil {
+	// 	return nil, fmt.Errorf("error creating hex bytes block: %v", err)
+	// }
+
+	rndBlock, err := HexToBytes("8df98812e258a7e8ed2f566745406bc4dd240ff740922232d24e501a22093094")
+	if err != nil {
+		return nil, fmt.Errorf("error creating hex bytes block: %v", err)
+	}
+	gbb := GetBlockBodies{
+		RequestID:   12,
+		BlockHashes: [][shaLen]byte{[shaLen]byte(rndBlock)},
+	}
+
+	f, err := createFrame(session, gbb)
+	if err != nil {
+		return nil, fmt.Errorf("error creating getBlockBodies frame: %v", err)
 	}
 
 	return f, nil
@@ -370,4 +490,22 @@ func (fd *FrameDisconnect) String() string {
 
 func (s *Status) String() string {
 	return fmt.Sprintf("Version: %d, NetworkID: %d, TotalDifficulty: %s, BlockHash: %x, Genesis: %x, ForkID: %v", s.Version, s.NetworkID, s.TotalDifficulty, s.BlockHash, s.Genesis, s.ForkID)
+}
+
+func (gbh *GetBlockHeaders) String() string {
+	return fmt.Sprintf("RequestID: %d, Origin: {Hash: %x, Number: %d}, Amount: %d, Skip: %d, Reverse: %t",
+		gbh.RequestId, gbh.Origin.Hash, gbh.Origin.Number, gbh.Amount, gbh.Skip, gbh.Reverse)
+}
+
+func (gbb *GetBlockBodies) String() string {
+	return fmt.Sprintf("RequestID: %d, BlockHashes: %x", gbb.RequestID, gbb.BlockHashes)
+}
+
+func (bb *BlockBodies) String() string {
+	var bBodiesDetails string
+	for i, bBody := range bb.BBodies {
+		bBodiesDetails += fmt.Sprintf("\n  BBody %d:\n    Transactions: %d\n    Uncles: %d\n    Withdrawals: %d",
+			i+1, len(bBody.Transactions), len(bBody.Uncles), len(bBody.Withdrawals))
+	}
+	return fmt.Sprintf("RequestID: %d, BBodies: [%s\n]", bb.RequestID, bBodiesDetails)
 }

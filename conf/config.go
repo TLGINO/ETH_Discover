@@ -67,9 +67,9 @@ func SetupLogger(filterComponent *string) {
 // CONFIG SETUP
 
 type tempConfig struct {
-	udpPort    uint16 `yaml:"udp_port"`
-	tcpPort    uint16 `yaml:"tcp_port"`
-	privateKey string `yaml:"private_key"`
+	UdpPort    uint16 `yaml:"udp_port"`
+	TcpPort    uint16 `yaml:"tcp_port"`
+	PrivateKey string `yaml:"private_key"`
 }
 
 func SetupConfig(path *string) (*interfaces.Config, *ecdsa.PrivateKey, error) {
@@ -106,15 +106,15 @@ func SetupConfig(path *string) (*interfaces.Config, *ecdsa.PrivateKey, error) {
 	}
 
 	// parse private key
-	privateKey, err := crypto.HexToECDSA(temp.privateKey)
+	privateKey, err := crypto.HexToECDSA(temp.PrivateKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error converting private key: %v", err)
 	}
 
 	config := &interfaces.Config{
 		Ip:      ip,
-		UdpPort: temp.udpPort,
-		TcpPort: temp.tcpPort,
+		UdpPort: temp.UdpPort,
+		TcpPort: temp.TcpPort,
 	}
 	return config, privateKey, nil
 }

@@ -70,13 +70,9 @@ func (t *TCP) handleConnection(conn net.Conn) {
 		t.mutex.Unlock()
 	}()
 
-	buf := make([]byte, 2<<24) // Max 16MiB
 	for {
-		n, err := conn.Read(buf)
-		if err != nil {
-			log.Err(err).Msg("TCP read error")
-			return
-		}
+		// buf := make([]byte, 2<<24) // Max 16MiB
+		conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 
 		var session *session.Session
 		found := true
@@ -86,10 +82,11 @@ func (t *TCP) handleConnection(conn net.Conn) {
 			session = t.sessionManager.AddSession(net.ParseIP(ip), uint16(conn.RemoteAddr().(*net.TCPAddr).Port))
 		}
 
-		packet, pType, err := rlpx.DeserializePacket(buf[:n], session, found)
+		packet, pType, err := rlpx.DeserializePacket(conn, session, found)
 		if err != nil {
 			log.Error().Err(err).Msg("error received tcp data")
-			return
+			continue
+			// return
 		}
 		t.registry.ExecCallBack(packet, pType, session)
 	}

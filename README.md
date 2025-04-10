@@ -44,6 +44,7 @@ Below I plotted the graphs showing which networks the nodes were advertising and
 Disconnect reasons:\
 0x00	Disconnect request\
 0x03	Useless peer\
+0x04  Too many peers\
 0x10	Some other reason specific to a subprotocol
 
 ### Questions:
@@ -64,6 +65,7 @@ If a technical eth person stumbles across this, I have some questions / concerns
 ## TODO:
   - general:
     - are there mem leaks??
+    - did I mess up baseOffset rlpx??
   - discv4:
     - respond to FindNode messages
     - respond to ENRRequest messages

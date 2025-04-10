@@ -79,3 +79,24 @@ func (tn *TransportNode) TestHello(session *session.Session) {
 	ip, port := session.To()
 	tn.SendTCP(ip, port, helloFrame)
 }
+
+func (tn *TransportNode) TestBlock() {
+	sessions := tn.sessionManager.GetAllSessions()
+	for _, session := range sessions {
+		if session.IsBonded() {
+			// can start requesting blocks
+			getBlockFrame, err := rlpx.CreateFrameGetBlockBodies(session)
+			if err != nil {
+				log.Err(err).Str("component", "rlpx").Msg("error creating getBlockBodies frame")
+				return
+			}
+			// getBlockHeadersFrame, err := rlpx.CreateFrameGetBlockHeaders(session)
+			// if err != nil {
+			// 	log.Err(err).Str("component", "rlpx").Msg("error creating getBlockHeaders frame")
+			// 	return
+			// }
+			ip, port := session.To()
+			tn.SendTCP(ip, port, getBlockFrame)
+		}
+	}
+}

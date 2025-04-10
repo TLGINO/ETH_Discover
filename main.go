@@ -16,6 +16,7 @@ func main() {
 	// PARSE ARGS
 	filterComponent := flag.String("component", "", "Filter logs by component name") // eth, discv4
 	configPath := flag.String("config", "", "Set config file")
+	// configPathTest := flag.String("config_test", "", "Set config file")
 	flag.Parse()
 
 	// LOGGER SETUP
@@ -29,8 +30,21 @@ func main() {
 	}
 	G.SetPK(privateKey)
 
+	// configTest, privateKeyTest, err := conf.SetupConfig(configPathTest)
+	// if err != nil {
+	// 	log.Error().Err(err).Msg("error generating config test")
+	// 	return
+	// }
+	// testEnode := interfaces.ENode{
+	// 	IP:  net.ParseIP("127.0.0.1"),
+	// 	UDP: configTest.UdpPort,
+	// 	TCP: configTest.TcpPort,
+	// 	ID:  [64]byte(crypto.FromECDSAPub(&privateKeyTest.PublicKey)[1:]),
+	// }
+
 	// NODE SETUP
-	n, err := node.Init(config)
+	n, err := node.Init(config, nil)
+	// n, err := node.Init(config, &testEnode)
 	if err != nil {
 		log.Error().Err(err).Msg("")
 		return
@@ -39,27 +53,39 @@ func main() {
 	// Give the server time to start
 	time.Sleep(time.Second)
 
-	discovery_node := n.GetDiscoveryNode()
+	// select {}
+
+	// discovery_node := n.GetDiscoveryNode()
 	transport_node := n.GetTransportNode()
 
+	// if config.TcpPort == 30303 {
+	// 	select {}
+	// }
 	// discv4 | Bind to new nodes
-	go func() {
-		for {
-			discovery_node.Bind()
-		}
-	}()
+	// go func() {
+	// 	for {
+	// 		discovery_node.Bind()
+	// 	}
+	// }()
 
 	// discv4 | Find new nodes
-	go func() {
-		for {
-			discovery_node.Find()
-		}
-	}()
+	// go func() {
+	// 	for {
+	// 		discovery_node.Find()
+	// 	}
+	// }()
 
 	// rlpx | Connect to new nodes
 	go func() {
 		for {
 			transport_node.StartHandShake()
+		}
+	}()
+
+	// rlpx | Request blocks
+	go func() {
+		for {
+			transport_node.TestBlock()
 		}
 	}()
 

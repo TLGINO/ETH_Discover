@@ -69,6 +69,7 @@ func (tn *TransportNode) ExecAuthAck(m rlpx.Packet, session *session.Session) {
 		}
 		ip, port := session.To()
 		tn.SendTCP(ip, port, status)
+		session.SetBonded()
 	}
 }
 
@@ -92,6 +93,7 @@ func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
 			}
 			ip, port := session.To()
 			tn.SendTCP(ip, port, status)
+			session.SetBonded()
 		}
 
 	case *rlpx.FrameDisconnect:
@@ -106,6 +108,15 @@ func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
 		log.Info().Str("component", "eth").Msg("received pong frame")
 	case *rlpx.Status:
 		log.Info().Str("component", "eth").Msgf("received status frame %v", frame.String())
+		session.SetBonded()
+	case *rlpx.GetBlockHeaders:
+		log.Info().Str("component", "eth").Msgf("received getBlockHeaders frame %v", frame.String())
+	case *rlpx.GetBlockBodies:
+		log.Info().Str("component", "eth").Msgf("received getBlockBodies frame %v", frame.String())
+	case *rlpx.BlockBodies:
+		println("\n\n RECEIVED BLOCK DATA\n\n")
+		log.Info().Str("component", "eth").Msgf("received blockBodies frame %v", frame.String())
+		panic("AHH")
 	default:
 		log.Warn().Str("component", "eth").Msg("received unknown frame type")
 	}
