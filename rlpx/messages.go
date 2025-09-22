@@ -184,12 +184,23 @@ func (f BlockBodies) Type() uint64 { return 0x16 }
 // -------
 
 // implements FrameContent
-type NewBlockPacket struct {
+type NewBlock struct {
 	Block *types.Block
 	TD    *big.Int
 }
 
-func (f NewBlockPacket) Type() uint64 { return 0x24 }
+func (f NewBlock) Type() uint64 { return 0x17 }
+
+// -------
+
+// implements FrameContent
+type NewPooledTransactionHashes struct {
+	Types  []byte
+	Sizes  []uint32
+	Hashes [][shaLen]byte
+}
+
+func (f NewPooledTransactionHashes) Type() uint64 { return 0x18 }
 
 //
 // ------------------------------------
@@ -287,40 +298,34 @@ func createAuth(authPacketBody Packet, recipientPK *ecdsa.PublicKey) ([]byte, er
 
 func CreateFrameHello(session *session.Session) ([]byte, error) {
 	publicKeyBytes := crypto.FromECDSAPub(G.PUBLIC_KEY)[1:]
-	cap := Cap{
+
+	cap68 := Cap{
 		Name:    "eth",
 		Version: 68,
 	}
+
 	fh := FrameHello{
 		ProtocolVersion: 5,
 		ClientID:        "linkedin.com/in/martin-lettry/", // Don't mind me, just plugging my linkedin
-		Capabilities:    []Cap{cap},
+		Capabilities:    []Cap{cap68},
 		ListenPort:      0,
 		NodeID:          [64]byte(publicKeyBytes),
 	}
-	f, err := createFrame(session, fh)
-	if err != nil {
-		return nil, fmt.Errorf("error creating hello frame: %v", err)
+	return createFrame(session, fh)
+}
+func CreateFrameDisconnect(session *session.Session, reason uint64) ([]byte, error) {
+	f := FrameDisconnect{
+		Reason: reason,
 	}
-	return f, nil
+	return createFrame(session, f)
 }
 
 func CreateFramePing(session *session.Session) ([]byte, error) {
-	fp := FramePing{}
-	f, err := createFrame(session, fp)
-	if err != nil {
-		return nil, fmt.Errorf("error creating ping frame: %v", err)
-	}
-	return f, nil
+	return createFrame(session, FramePing{})
 }
 
 func CreateFramePong(session *session.Session) ([]byte, error) {
-	fp := FramePong{}
-	f, err := createFrame(session, fp)
-	if err != nil {
-		return nil, fmt.Errorf("error creating pong frame: %v", err)
-	}
-	return f, nil
+	return createFrame(session, FramePong{})
 }
 
 func CreateStatusMessage(session *session.Session) ([]byte, error) {
@@ -330,42 +335,20 @@ func CreateStatusMessage(session *session.Session) ([]byte, error) {
 		return nil, fmt.Errorf("error creating hex bytes block: %v", err)
 	}
 
-	// This is ~current
-	// hexBlockHash, err := HexToBytes("a8e6390f684942d68a1cb8b6ed381131ab7eaa83b4b4d900cec76dfb52569412")
-	// if err != nil {
-	// 	return nil, fmt.Errorf("error creating hex bytes block: %v", err)
-	// }
-	// s := Status{
-	// 	Version:         68,
-	// 	NetworkID:       1,             // 1 for Mainnet
-	// 	TotalDifficulty: big.NewInt(0), // 0 I think
-	// 	BlockHash:       [shaLen]byte(hexBlockHash),
-	// 	Genesis:         [shaLen]byte(genesis),
-	// 	ForkID: ForkID{
-	// 		Hash: [4]byte{0x9f, 0x3d, 0x22, 0x54},
-	// 		Next: 0,
-	// 	},
-	// }
-
 	// This is perfect for sync
 	s := Status{
 		Version:         68,
-		NetworkID:       1,                       // 1 for Mainnet
-		TotalDifficulty: big.NewInt(17179869184), // 0 I think
+		NetworkID:       1,
+		TotalDifficulty: big.NewInt(0), // not used?
 		BlockHash:       [shaLen]byte(genesis),
 		Genesis:         [shaLen]byte(genesis),
 		ForkID: ForkID{
-			Hash: [4]byte{0xfc, 0x64, 0xec, 0x04},
-			Next: 1150000,
+			Hash: [4]byte{0xc3, 0x76, 0xcf, 0x8b},
+			Next: 0,
 		},
 	}
 
-	f, err := createFrame(session, s)
-	if err != nil {
-		return nil, fmt.Errorf("error creating status frame: %v", err)
-	}
-
-	return f, nil
+	return createFrame(session, s)
 }
 func CreateFrameGetBlockHeaders(session *session.Session) ([]byte, error) {
 	gbh := GetBlockHeaders{
@@ -378,34 +361,20 @@ func CreateFrameGetBlockHeaders(session *session.Session) ([]byte, error) {
 		},
 	}
 
-	f, err := createFrame(session, gbh)
-	if err != nil {
-		return nil, fmt.Errorf("error creating getBlockHeaders frame: %v", err)
-	}
-
-	return f, nil
+	return createFrame(session, gbh)
 }
 func CreateFrameGetBlockBodies(session *session.Session) ([]byte, error) {
-	// genesis, err := HexToBytes("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
-	// if err != nil {
-	// 	return nil, fmt.Errorf("error creating hex bytes block: %v", err)
-	// }
-
-	rndBlock, err := HexToBytes("8df98812e258a7e8ed2f566745406bc4dd240ff740922232d24e501a22093094")
+	genesis, err := HexToBytes("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
 	if err != nil {
 		return nil, fmt.Errorf("error creating hex bytes block: %v", err)
 	}
+
 	gbb := GetBlockBodies{
 		RequestID:   12,
-		BlockHashes: [][shaLen]byte{[shaLen]byte(rndBlock)},
+		BlockHashes: [][shaLen]byte{[shaLen]byte(genesis)},
 	}
 
-	f, err := createFrame(session, gbb)
-	if err != nil {
-		return nil, fmt.Errorf("error creating getBlockBodies frame: %v", err)
-	}
-
-	return f, nil
+	return createFrame(session, gbb)
 }
 
 func createFrame(session *session.Session, frameContent FrameContent) ([]byte, error) {
@@ -413,7 +382,8 @@ func createFrame(session *session.Session, frameContent FrameContent) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
-	if session.IsCompressionActive() {
+
+	if frameContent.Type() != 0 { // only if not Hello 0x00 do we compress
 		// use snappy
 		msg_data = snappy.Encode(nil, msg_data)
 	}
@@ -508,4 +478,12 @@ func (bb *BlockBodies) String() string {
 			i+1, len(bBody.Transactions), len(bBody.Uncles), len(bBody.Withdrawals))
 	}
 	return fmt.Sprintf("RequestID: %d, BBodies: [%s\n]", bb.RequestID, bBodiesDetails)
+}
+
+func (nb *NewBlock) String() string {
+	return fmt.Sprintf("Block: %v, TD: %s", nb.Block, nb.TD)
+}
+
+func (n *NewPooledTransactionHashes) String() string {
+	return fmt.Sprintf("Types: %x, Sizes: %v, Hashes: %x", n.Types, n.Sizes, n.Hashes)
 }

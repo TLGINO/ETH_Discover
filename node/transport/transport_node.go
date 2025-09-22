@@ -2,9 +2,9 @@ package transport
 
 import (
 	"eth_discover/interfaces"
+	"eth_discover/rlpx"
 	"eth_discover/session"
-	"net"
-	"strconv"
+	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -40,12 +40,34 @@ func (tn *TransportNode) SetNode(n interfaces.NodeInterface) {
 	}
 }
 
-func (tn *TransportNode) SendTCP(toIP net.IP, toPort uint16, data []byte) {
-	var toAddr string
-	if toIP.To4() != nil {
-		toAddr = toIP.String() + ":" + strconv.Itoa(int(toPort))
-	} else {
-		toAddr = "[" + toIP.String() + "]:" + strconv.Itoa(int(toPort))
+func (tn *TransportNode) GetSessionManager() *session.SessionManager {
+	return tn.sessionManager
+}
+
+func (tn *TransportNode) SendTCP(session *session.Session, data []byte) {
+	tn.tcp.Send(session, data)
+}
+
+func (tn *TransportNode) Disconnect(session *session.Session, reason uint64) {
+	// Send disconnect then close connection
+	disconnect, err := rlpx.CreateFrameDisconnect(session, reason)
+	if err != nil {
+		log.Err(err).Str("component", "eth").Msg("error creating disconnect message")
+		return
 	}
-	tn.tcp.Send(toAddr, data)
+	tn.SendTCP(session, disconnect)
+	// sleep 2 seconds, as per protocol request
+	time.Sleep(2 * time.Second)
+
+	tn.tcp.Close(session)
+}
+
+func (tn *TransportNode) Cleanup() {
+	// close all sessions
+	sessions := tn.sessionManager.GetAllSessions()
+	for _, session := range sessions {
+		ip, _ := session.To()
+		log.Info().Msgf("disconnecting from: %v", ip)
+		tn.tcp.Close(session)
+	}
 }

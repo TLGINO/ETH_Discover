@@ -18,44 +18,50 @@ import (
 )
 
 func DeserializePacket(conn io.Reader, session *session.Session, found bool) (Packet, byte, error) {
-	// 3 cases
-	// we have received an auth message
-	// we have received an auth-ack message
-	// we have received a frame
-	b := make([]byte, 2<<24) // Max 16MiB
 	if !found {
-		n, _ := conn.Read(b)
-		return handleAuthMessage(b[:n], session)
+		packet, err := handleAuthMessage(conn, session)
+		return packet, 0x01, err
 	} else if !session.IsActive() {
-		n, _ := conn.Read(b)
-		return handleAuthAck(b[:n], session)
+		packet, err := handleAuthAck(conn, session)
+		return packet, 0x02, err
 	} else {
-		return handleFrame(conn, session)
+		packet, err := handleFrame(conn, session)
+		return packet, 0x03, err
 	}
 
 }
-func handleAuthMessage(data []byte, session *session.Session) (Packet, byte, error) {
-	prefix := data[0:2]
+func handleAuthMessage(conn io.Reader, session *session.Session) (Packet, error) {
+	session.Rbuf.Reset()
 
-	packet := data[2:]
+	// Frame Header
+	prefix, err := session.Rbuf.Read(conn, 2)
+	if err != nil {
+		return nil, err
+	}
+
+	size := binary.BigEndian.Uint16(prefix)
+	packet, err := session.Rbuf.Read(conn, int(size))
+	if err != nil {
+		return nil, err
+	}
 
 	// Decrypt the auth message using our private key
 	decrypted, err := ecies.ImportECDSA(G.PRIVATE_KEY).Decrypt(packet, nil, prefix)
 	if err != nil {
-		return nil, 0x00, fmt.Errorf("failed to decrypt packet data: %w", err)
+		return nil, fmt.Errorf("failed to decrypt packet data: %w", err)
 	}
 
 	// Deserialize the auth message
 	var authMessage AuthMessage
 	err = deserializePacket(decrypted, &authMessage)
 	if err != nil {
-		return nil, 0x00, fmt.Errorf("failed to deserialize auth-message data: %w", err)
+		return nil, fmt.Errorf("failed to deserialize auth-message data: %w", err)
 	}
 
 	// Convert initiator's public key bytes to ECDSA public key
 	initiatorPubKey, err := PubkeyToECDSA(authMessage.InitiatorPK)
 	if err != nil {
-		return nil, 0x00, fmt.Errorf("failed to convert initiator public key: %w", err)
+		return nil, fmt.Errorf("failed to convert initiator public key: %w", err)
 	}
 
 	// Get the static shared secret using our private key and initiator's public key
@@ -65,20 +71,20 @@ func handleAuthMessage(data []byte, session *session.Session) (Packet, byte, err
 		sskLen,
 	)
 	if err != nil {
-		return nil, 0x00, fmt.Errorf("failed to generate shared secret: %w", err)
+		return nil, fmt.Errorf("failed to generate shared secret: %w", err)
 	}
 
 	// Verify signature (static-shared-secret ^ nonce)
 	signedMsg := xor(token, authMessage.Nonce[:])
 	recoveredPubKeyBytes, err := crypto.Ecrecover(signedMsg, authMessage.Signature[:])
 	if err != nil {
-		return nil, 0x00, fmt.Errorf("failed to recover public key from signature: %w", err)
+		return nil, fmt.Errorf("failed to recover public key from signature: %w", err)
 	}
 
 	// Convert the recovered public key bytes to ECDSA public key
 	recoveredPubKey, err := crypto.UnmarshalPubkey(recoveredPubKeyBytes)
 	if err != nil {
-		return nil, 0x00, fmt.Errorf("failed to unmarshal recovered public key: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal recovered public key: %w", err)
 	}
 
 	// Save the remote ephemeral public key to session
@@ -90,14 +96,14 @@ func handleAuthMessage(data []byte, session *session.Session) (Packet, byte, err
 	// Generate recipient nonce
 	recNonce := make([]byte, shaLen)
 	if _, err := rand.Read(recNonce); err != nil {
-		return nil, 0x00, fmt.Errorf("failed to generate recipient nonce: %w", err)
+		return nil, fmt.Errorf("failed to generate recipient nonce: %w", err)
 	}
 	session.SetRecNonce(recNonce)
 
 	// Ephemeral Private Key
 	ephemeralPrivateKey, err := GenerateRandomEphemeralPrivateKey()
 	if err != nil {
-		return nil, 0x00, err
+		return nil, err
 	}
 	session.SetEphemeralPrivateKey(ephemeralPrivateKey)
 
@@ -105,30 +111,40 @@ func handleAuthMessage(data []byte, session *session.Session) (Packet, byte, err
 	// SECRETS generation is in callback
 
 	// save to auth
-	session.AddAuth(data)
+	session.AddAuth(append(prefix, packet...))
 
-	return authMessage, 0x01, nil
+	return authMessage, nil
 }
 
-func handleAuthAck(data []byte, session *session.Session) (Packet, byte, error) {
-	prefix := data[0:2]
+func handleAuthAck(conn io.Reader, session *session.Session) (Packet, error) {
+	// prefix := data[0:2]
+	prefix, err := session.Rbuf.Read(conn, 2)
+	if err != nil {
+		return nil, err
+	}
+
+	// prefix := data[0:2]
 	size := binary.BigEndian.Uint16(prefix)
 
 	if size > 2048 {
-		return nil, 0x00, fmt.Errorf("auth-ack message too big")
+		return nil, fmt.Errorf("auth-ack message too big")
+	}
+	packet, err := session.Rbuf.Read(conn, int(size))
+	if err != nil {
+		return nil, err
 	}
 
-	packet := data[2 : int(size)+2]
+	// packet := data[2 : int(size)+2]
 	decrypted, err := ecies.ImportECDSA(G.PRIVATE_KEY).Decrypt(packet, nil, prefix)
 	if err != nil {
-		return nil, 0x00, fmt.Errorf("failed to decrypt packet data: %w", err)
+		return nil, fmt.Errorf("failed to decrypt packet data: %w", err)
 	}
 
 	// ---------
 	var authAck AuthAck
 	err = deserializePacket(decrypted, &authAck)
 	if err != nil {
-		return nil, 0x00, fmt.Errorf("failed to deserialize auth-ack data: %w", err)
+		return nil, fmt.Errorf("failed to deserialize auth-ack data: %w", err)
 	}
 
 	// Save Nonce
@@ -137,13 +153,14 @@ func handleAuthAck(data []byte, session *session.Session) (Packet, byte, error) 
 	// Get ecies recipient ephemeral key and save it
 	ephemeral_ecdsa_public_key, err := PubkeyToECDSA(authAck.RecipientEphemeralKey)
 	if err != nil {
-		return nil, 0x00, fmt.Errorf("error deriving public key from bytes: %v", err)
+		return nil, fmt.Errorf("error deriving public key from bytes: %v", err)
 	}
 	session.SetRemoteEphemeralPublicKey(ecies.ImportECDSAPublic(ephemeral_ecdsa_public_key))
 
 	// -----------------------
 	// STATE
-	session.AddAuthAck(data)
+	// session.AddAuthAck(data)
+	session.AddAuthAck(append(prefix, packet...))
 	session.SetActive()
 
 	// -----------------------
@@ -151,13 +168,13 @@ func handleAuthAck(data []byte, session *session.Session) (Packet, byte, error) 
 
 	err = GenerateSecrets(session)
 	if err != nil {
-		return nil, 0x00, fmt.Errorf("error generating auth-ack secrets")
+		return nil, fmt.Errorf("error generating auth-ack secrets")
 	}
 
-	return authAck, 0x02, nil
+	return authAck, nil
 }
 
-func handleFrame(conn io.Reader, session *session.Session) (Packet, byte, error) {
+func handleFrame(conn io.Reader, session *session.Session) (Packet, error) {
 	session.Rbuf.Reset()
 
 	// fmt.Printf("Frame data: %x\n", data)
@@ -165,14 +182,14 @@ func handleFrame(conn io.Reader, session *session.Session) (Packet, byte, error)
 	// Frame Header
 	header, err := session.Rbuf.Read(conn, 32)
 	if err != nil {
-		return nil, 0x00, err
+		return nil, err
 	}
 
 	// Verify header MAC.
 	wantHeaderMAC := session.IngressMAC.ComputeHeader(header[:16])
 
 	if !hmac.Equal(wantHeaderMAC, header[16:]) {
-		return nil, 0x00, fmt.Errorf("incorrect header-mac")
+		return nil, fmt.Errorf("incorrect header-mac")
 	}
 
 	// Decrypt the frame header to get the frame size.
@@ -190,18 +207,18 @@ func handleFrame(conn io.Reader, session *session.Session) (Packet, byte, error)
 
 	frame, err := session.Rbuf.Read(conn, int(rsize))
 	if err != nil {
-		return nil, 0x00, err
+		return nil, err
 	}
 
 	// Validate frame MAC.
 	frameMAC, err := session.Rbuf.Read(conn, 16)
 	if err != nil {
-		return nil, 0x00, err
+		return nil, err
 	}
 
 	wantFrameMAC := session.IngressMAC.ComputeFrame(frame)
 	if !hmac.Equal(wantFrameMAC, frameMAC) {
-		return nil, 0x00, fmt.Errorf("incorrect frame-mac")
+		return nil, fmt.Errorf("incorrect frame-mac")
 	}
 
 	// Decrypt the frame data.
@@ -211,47 +228,40 @@ func handleFrame(conn io.Reader, session *session.Session) (Packet, byte, error)
 
 	code, frame_data, err := rlp.SplitUint64(real_decrypted_frame)
 	if err != nil {
-		return 0, 0x00, fmt.Errorf("invalid message code: %v", err)
-	}
-	fmt.Printf("HERE IS CODE %d\n", code)
-
-	// fmt.Printf("Decrypted Frame Data: %x\n", real_decrypted_frame)
-	// fmt.Printf("Frame Data Before Snappy: %x\n", frame_data)
-	// use snappy
-	// [TODO] redo buffer stuff here
-	if session.IsCompressionActive() {
-		// if session.IsCompressionActive() {
-		var actualSize int
-		actualSize, err = snappy.DecodedLen(frame_data)
-		if err != nil {
-			return nil, 0x00, err
-		}
-		// println("Actual size:", actualSize)
-		if actualSize > 2<<24 {
-			return code, 0x00, fmt.Errorf("message too large")
-		}
-		// frame_data = bytes.TrimRight(frame_data, "\x00")
-
-		nData, err := snappy.Decode(nil, frame_data)
-		if err != nil {
-			// println("HERE ERROR SNAPPY")
-			return nil, 0x00, err
-		}
-		// fmt.Printf("NDATA: %x\n", nData)
-
-		frame_data = make([]byte, len(nData))
-		copy(frame_data, nData)
+		return nil, fmt.Errorf("invalid message code: %v", err)
 	}
 
 	var resolved_frame Packet
 
 	// Disconnect was sent and was not RLP encoded
-	// Parse that byte directly
-	if code == 1 && len(frame_data) == 1 {
-		resolved_frame = &FrameDisconnect{Reason: uint64(frame_data[0])}
-		return resolved_frame, 0x03, nil
+	// It may or may not be snappy encoded
+	// Try to decode normally
+	if code == 1 {
+		resolved_frame = &FrameDisconnect{}
+		err = deserializePacket(frame_data, resolved_frame)
+		if err == nil {
+			return resolved_frame, nil
+		}
 	}
+	// use snappy
+	// [TODO] redo buffer stuff here
+	if code != 0 {
+		var actualSize int
+		actualSize, err = snappy.DecodedLen(frame_data)
+		if err != nil {
+			return nil, err
+		}
+		if actualSize > 2<<24 {
+			return nil, fmt.Errorf("message too large")
+		}
 
+		nData, err := snappy.Decode(nil, frame_data)
+		if err != nil {
+			return nil, err
+		}
+		frame_data = make([]byte, len(nData))
+		copy(frame_data, nData)
+	}
 	switch code {
 	case 0:
 		resolved_frame = &FrameHello{}
@@ -269,18 +279,20 @@ func handleFrame(conn io.Reader, session *session.Session) (Packet, byte, error)
 		resolved_frame = &GetBlockBodies{}
 	case 22:
 		resolved_frame = &BlockBodies{}
+	case 23:
+		resolved_frame = &NewBlock{}
 	case 24:
-		return nil, 0x00, fmt.Errorf("FRAME 24 RECEIVED, GOOD PRE")
+		resolved_frame = &NewPooledTransactionHashes{}
 	default:
-		return nil, 0x00, fmt.Errorf("unknown frame type: %d", code)
+		return nil, fmt.Errorf("unknown frame type: %d", code)
 	}
 
 	err = deserializePacket(frame_data, resolved_frame)
 	if err != nil {
-		return nil, 0x00, err
+		return nil, err
 	}
 
-	return resolved_frame, 0x03, nil
+	return resolved_frame, nil
 }
 
 // ------------------------------------

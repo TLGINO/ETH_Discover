@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"os"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -41,8 +40,31 @@ func (f *componentFilter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
+// componentExcludeFilter filters out logs with a specific component.
+type componentExcludeFilter struct {
+	excludeComponent string
+	writer           io.Writer
+}
+
+func (f *componentExcludeFilter) Write(p []byte) (n int, err error) {
+	var entry map[string]interface{}
+	if err := json.Unmarshal(p, &entry); err != nil {
+		// If we can't parse it, write it anyway
+		return f.writer.Write(p)
+	}
+
+	// Check if this log has the excluded component
+	if comp, ok := entry["component"].(string); ok && comp == f.excludeComponent {
+		// Exclude this log entry
+		return len(p), nil
+	}
+
+	// Otherwise, write it
+	return f.writer.Write(p)
+}
+
 // Logger configs
-func SetupLogger(filterComponent *string) {
+func SetupLogger(filterComponent, excludeComponent *string) {
 	// LOGGER SETUP
 	zerolog.TimeFieldFormat = ""
 
@@ -59,6 +81,12 @@ func SetupLogger(filterComponent *string) {
 			writer:    consoleWriter,
 		}
 	}
+	if *excludeComponent != "" {
+		writer = &componentExcludeFilter{
+			excludeComponent: *excludeComponent,
+			writer:           consoleWriter,
+		}
+	}
 	logger := zerolog.New(writer).With().Timestamp().Logger()
 	log.Logger = logger
 }
@@ -70,6 +98,8 @@ type tempConfig struct {
 	UdpPort    uint16 `yaml:"udp_port"`
 	TcpPort    uint16 `yaml:"tcp_port"`
 	PrivateKey string `yaml:"private_key"`
+	MaxPeers   uint16 `yaml:"max_peers"`
+	NetworkID  uint64 `yaml:"network_id"`
 }
 
 func SetupConfig(path *string) (*interfaces.Config, *ecdsa.PrivateKey, error) {
@@ -83,9 +113,11 @@ func SetupConfig(path *string) (*interfaces.Config, *ecdsa.PrivateKey, error) {
 		log.Error().Msg("no path set, using default config instead")
 
 		config := interfaces.Config{
-			Ip:      ip,
-			UdpPort: 30303,
-			TcpPort: 30303,
+			Ip:        ip,
+			UdpPort:   30303,
+			TcpPort:   30303,
+			MaxPeers:  uint16(^uint16(0)), // max uint16
+			NetworkID: 1,
 		}
 
 		G.CreatePK()
@@ -112,27 +144,30 @@ func SetupConfig(path *string) (*interfaces.Config, *ecdsa.PrivateKey, error) {
 	}
 
 	config := &interfaces.Config{
-		Ip:      ip,
-		UdpPort: temp.UdpPort,
-		TcpPort: temp.TcpPort,
+		Ip:        ip,
+		UdpPort:   temp.UdpPort,
+		TcpPort:   temp.TcpPort,
+		MaxPeers:  temp.MaxPeers,
+		NetworkID: temp.NetworkID,
 	}
 	return config, privateKey, nil
 }
 
 func getPublicIP() (net.IP, error) {
-	var ip struct {
-		Query string `json:"query"`
-	}
-	resp, err := http.Get("http://ip-api.com/json/")
-	if err != nil {
-		return nil, err
-	}
+	// var ip struct {
+	// 	Query string `json:"query"`
+	// }
+	// resp, err := http.Get("http://ip-api.com/json/")
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	defer resp.Body.Close()
-	err = json.NewDecoder(resp.Body).Decode(&ip)
+	// defer resp.Body.Close()
+	// err = json.NewDecoder(resp.Body).Decode(&ip)
 
-	if err != nil {
-		return nil, err
-	}
-	return net.ParseIP(ip.Query), nil
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// return net.ParseIP(ip.Query), nil
+	return net.ParseIP("80.11.78.178"), nil
 }

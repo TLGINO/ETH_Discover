@@ -24,10 +24,10 @@ type Node struct {
 }
 
 // interface function
-func Init(config *interfaces.Config, testNode *interfaces.ENode) (*Node, error) {
+func Init(config *interfaces.Config) (*Node, error) {
 	log.Info().Msg("Config: " + config.String())
 
-	discovery_node, err := discovery.Init(testNode) // dependency injection
+	discovery_node, err := discovery.Init()
 	if err != nil {
 		return nil, fmt.Errorf("error creating discovery node: %v", err)
 	}

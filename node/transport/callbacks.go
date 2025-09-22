@@ -41,36 +41,29 @@ func (tn *TransportNode) ExecAuth(m rlpx.Packet, session *session.Session) {
 
 	// -----------------------
 	// Sending Auth-Ack back
-	ip, port := session.To()
-	tn.SendTCP(ip, port, authAckData)
+	tn.SendTCP(session, authAckData)
 
 	// -----------------------
 	// Sending first Hello Frame
-
-	tn.TestHello(session)
-	session.SetCompressionActive() // if we send and receive a hello, use snappy
+	helloFrame, err := rlpx.CreateFrameHello(session)
+	if err != nil {
+		log.Err(err).Str("component", "rlpx").Msg("error creating hello frame")
+		return
+	}
+	tn.SendTCP(session, helloFrame)
 }
 func (tn *TransportNode) ExecAuthAck(m rlpx.Packet, session *session.Session) {
 	// authAck := m.(rlpx.AuthAck)
 	log.Info().Str("component", "rlpx").Msg("received authAck")
-
 	// -----------------------
 	// Sending first Hello Frame
-
-	tn.TestHello(session)
-	session.SetCompressionActive() // if we send and receive a hello, use snappy
-	if session.IsCompressionActive() {
-		// hello handshake completed
-		// can send eth status
-		status, err := rlpx.CreateStatusMessage(session)
-		if err != nil {
-			log.Err(err).Str("component", "eth").Msg("error creating status message")
-			return
-		}
-		ip, port := session.To()
-		tn.SendTCP(ip, port, status)
-		session.SetBonded()
+	helloFrame, err := rlpx.CreateFrameHello(session)
+	if err != nil {
+		log.Err(err).Str("component", "rlpx").Msg("error creating hello frame")
+		return
 	}
+	tn.SendTCP(session, helloFrame)
+
 }
 
 func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
@@ -80,43 +73,53 @@ func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
 	case *rlpx.FrameHello:
 		log.Info().Str("component", "eth").Msgf("received hello frame %v", frame.String())
 
-		// if we send and receive a hello, use snappy
-		session.SetCompressionActive()
-
-		if session.IsCompressionActive() {
-			// hello handshake completed
-			// can send eth status
-			status, err := rlpx.CreateStatusMessage(session)
-			if err != nil {
-				log.Err(err).Str("component", "eth").Msg("error creating status message")
-				return
-			}
-			ip, port := session.To()
-			tn.SendTCP(ip, port, status)
-			session.SetBonded()
+		// hello handshake completed
+		// can send eth status
+		status, err := rlpx.CreateStatusMessage(session)
+		if err != nil {
+			log.Err(err).Str("component", "eth").Msg("error creating status message")
+			return
 		}
+		tn.SendTCP(session, status)
+		session.SetBonded()
 
 	case *rlpx.FrameDisconnect:
 		log.Info().Str("component", "eth").Msgf("received disconnect frame %v", frame.String())
 
-		// Remove this session
-		ip, _ := session.To()
-		tn.sessionManager.RemoveSession(ip.String())
+		// disconnect and cleanup
+		tn.Disconnect(session, 0)
+
 	case *rlpx.FramePing:
 		log.Info().Str("component", "eth").Msg("received ping frame")
+		pong, err := rlpx.CreateFramePong(session)
+		if err != nil {
+			log.Err(err).Str("component", "eth").Msg("error creating pong message")
+			return
+		}
+		tn.SendTCP(session, pong)
+
 	case *rlpx.FramePong:
 		log.Info().Str("component", "eth").Msg("received pong frame")
 	case *rlpx.Status:
 		log.Info().Str("component", "eth").Msgf("received status frame %v", frame.String())
+
+		// Check if suitable based on our config
+		// if frame.NetworkID != G.CONFIG.NetworkID {
+		// 	// disconnect and cleanup
+		// 	tn.Disconnect(session)
+		// 	return
+		// }
 		session.SetBonded()
 	case *rlpx.GetBlockHeaders:
 		log.Info().Str("component", "eth").Msgf("received getBlockHeaders frame %v", frame.String())
 	case *rlpx.GetBlockBodies:
 		log.Info().Str("component", "eth").Msgf("received getBlockBodies frame %v", frame.String())
 	case *rlpx.BlockBodies:
-		println("\n\n RECEIVED BLOCK DATA\n\n")
 		log.Info().Str("component", "eth").Msgf("received blockBodies frame %v", frame.String())
-		panic("AHH")
+	case *rlpx.NewBlock:
+		log.Info().Str("component", "eth").Msgf("received newBlock frame %v", frame.String())
+	case *rlpx.NewPooledTransactionHashes:
+		log.Info().Str("component", "eth").Msgf("received newPooledTransactionHashes frame %v", frame.String())
 	default:
 		log.Warn().Str("component", "eth").Msg("received unknown frame type")
 	}

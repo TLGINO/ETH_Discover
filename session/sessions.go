@@ -117,8 +117,9 @@ func (b *readBuffer) Grow(n int) {
 }
 
 type peer struct {
-	IP  net.IP
-	TCP uint16
+	IP   net.IP
+	TCP  uint16
+	conn net.Conn
 }
 
 type peerNonces struct {
@@ -138,11 +139,10 @@ type handShakeState struct {
 }
 
 type Session struct {
-	isActive            bool // Whether handshake phase is over or not
-	isCompressionActive byte // Whether to use snappy or not (post hello)
-	isBondedActive      byte // Whether have bonded (post status)
-	EgressMAC           HashMAC
-	IngressMAC          HashMAC
+	isActive       bool // Whether handshake phase is over or not
+	isBondedActive byte // Whether have bonded (post status)
+	EgressMAC      HashMAC
+	IngressMAC     HashMAC
 
 	peer *peer
 	Enc  cipher.Stream
@@ -150,12 +150,19 @@ type Session struct {
 
 	Rbuf readBuffer
 
-	// Deleted in Cleanup once handshake is over
 	handShakeState *handShakeState
 }
 
 // ----
-
+func (s *Session) AddConn(conn net.Conn) {
+	s.peer.conn = conn
+}
+func (s *Session) GetConn() (net.Conn, bool) {
+	if s.peer.conn != nil {
+		return s.peer.conn, true
+	}
+	return nil, false
+}
 func (s *Session) To() (net.IP, uint16) {
 	return s.peer.IP, s.peer.TCP
 }
@@ -204,16 +211,6 @@ func (s *Session) IsActive() bool {
 
 // ----
 
-func (s *Session) SetCompressionActive() {
-	s.isCompressionActive += 1
-}
-func (s *Session) IsCompressionActive() bool {
-	// we need to both receive and send a hello message -> hence 2
-	return s.isCompressionActive == 0x02
-}
-
-// ----
-
 func (s *Session) SetBonded() {
 	s.isBondedActive += 1
 }
@@ -245,12 +242,6 @@ func (s *Session) GetAuthStates() ([]byte, []byte) {
 
 // ----
 
-// Cleanup of variables / data used for handshake
-func (s *Session) Cleanup() {
-	// garbage collector should do the rest
-	s.handShakeState = nil
-}
-
 func CreateSessionManager() *SessionManager {
 	sm := SessionManager{
 		sessions: make(map[string]*Session),
@@ -258,20 +249,27 @@ func CreateSessionManager() *SessionManager {
 	return &sm
 }
 
-func (sm *SessionManager) GetSession(ip string) *Session {
+func (sm *SessionManager) GetSession(ip string) (*Session, bool) {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
-	return sm.sessions[ip]
+	session, ok := sm.sessions[ip]
+	if !ok {
+		return nil, false
+	}
+	return session, true
 }
 
 func (sm *SessionManager) AddSession(ip net.IP, tcp_port uint16) *Session {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
 	session := &Session{
-		peer: &peer{IP: ip, TCP: tcp_port},
+		peer: &peer{IP: ip, TCP: tcp_port, conn: nil},
 		handShakeState: &handShakeState{
-			nonces: &peerNonces{},
-			auth:   &authData{},
+			isInitiator:              false,
+			nonces:                   &peerNonces{},
+			auth:                     &authData{},
+			ephemeralPrivateKey:      nil,
+			remoteEphemeralPublicKey: nil,
 		},
 	}
 	sm.sessions[ip.String()] = session

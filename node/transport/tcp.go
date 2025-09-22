@@ -5,7 +5,7 @@ import (
 	"eth_discover/session"
 	"fmt"
 	"net"
-	"sync"
+	"strconv"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -13,12 +13,10 @@ import (
 
 type TCP struct {
 	listener       net.Listener
-	connections    map[string]net.Conn // Changed from *net.Conn to net.Conn
 	port           uint16
 	sessionManager *session.SessionManager
 	registry       *Registry // <- dependency injection
 
-	mutex sync.RWMutex // Added mutex for thread safety
 }
 
 func (t *TCP) Init(port uint16, registry *Registry, sessionManager *session.SessionManager) error {
@@ -29,7 +27,6 @@ func (t *TCP) Init(port uint16, registry *Registry, sessionManager *session.Sess
 	if err != nil {
 		return fmt.Errorf("error creating TCP server: %v", err)
 	}
-	t.connections = make(map[string]net.Conn)
 	t.listener = listener
 	t.sessionManager = sessionManager
 	t.registry = registry
@@ -50,82 +47,105 @@ func (t *TCP) handleConnections() {
 			continue
 		}
 
-		// Store connection using remote address as key
-		remoteAddr := conn.RemoteAddr().String()
-		t.mutex.Lock()
-		t.connections[remoteAddr] = conn
-		t.mutex.Unlock()
-
 		go t.handleConnection(conn)
 	}
 }
 
 func (t *TCP) handleConnection(conn net.Conn) {
 	remoteAddr := conn.RemoteAddr().String()
-	ip, _, _ := net.SplitHostPort(remoteAddr) // Extract IP address
+	ip, _, _ := net.SplitHostPort(remoteAddr)
 	defer func() {
+		t.sessionManager.RemoveSession(ip)
 		conn.Close()
-		t.mutex.Lock()
-		delete(t.connections, remoteAddr)
-		t.mutex.Unlock()
 	}()
 
 	for {
-		// buf := make([]byte, 2<<24) // Max 16MiB
-		conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-
-		var session *session.Session
-		found := true
-		session = t.sessionManager.GetSession(ip)
-		if session == nil {
-			found = false
+		// if new session, add it
+		session, found := t.sessionManager.GetSession(ip)
+		if !found {
 			session = t.sessionManager.AddSession(net.ParseIP(ip), uint16(conn.RemoteAddr().(*net.TCPAddr).Port))
 		}
+		session.AddConn(conn)
 
+		// read from connection
+		err := conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+		if err != nil {
+			log.Error().Err(err).Msg("error setting read deadline")
+			return
+		}
+
+		// deserialize message
 		packet, pType, err := rlpx.DeserializePacket(conn, session, found)
 		if err != nil {
 			log.Error().Err(err).Msg("error received tcp data")
-			continue
-			// return
+			t.sessionManager.RemoveSession(ip)
+			return
 		}
+
+		// exec callback
 		t.registry.ExecCallBack(packet, pType, session)
 	}
 }
 
-func (t *TCP) Send(to string, data []byte) {
+func (t *TCP) Send(session *session.Session, data []byte) {
 	// Check if we already have a connection to this address
-	var conn net.Conn
-	var err error
+	conn, found := session.GetConn()
 
-	t.mutex.RLock()
-	conn, exists := t.connections[to]
-	t.mutex.RUnlock()
+	if !found {
+		// create address ipv4 / ipv6
+		toIP, toPort := session.To()
+		var to string
+		if toIP.To4() != nil {
+			to = toIP.String() + ":" + strconv.Itoa(int(toPort))
+		} else {
+			to = "[" + toIP.String() + "]:" + strconv.Itoa(int(toPort))
+		}
 
-	if !exists {
-		// Create new connection if none exists
-		conn, err = net.DialTimeout("tcp", to, 1*time.Second)
+		// open connection
+		newConn, err := net.DialTimeout("tcp", to, 1*time.Second)
 		if err != nil {
 			log.Error().Err(err).Msgf("failed to connect to server")
+			t.Close(session)
 			return
 		}
 
-		// Store the new connection
-		t.mutex.Lock()
-		t.connections[to] = conn
-		t.mutex.Unlock()
+		// add conn to session
+		session.AddConn(newConn)
 
-		// Handle the connection in a separate goroutine
-		go t.handleConnection(conn)
+		// listen on connection
+		go t.handleConnection(newConn)
+
+		// always get the connection from session after adding
+		conn, _ = session.GetConn()
 	}
 
 	// Send data using the connection
-	_, err = conn.Write(data)
+	_, err := conn.Write(data)
 	if err != nil {
 		// Remove failed connection
-		t.mutex.Lock()
-		delete(t.connections, to)
-		t.mutex.Unlock()
 		log.Error().Err(err).Msg("error sending via tcp:")
+		t.Close(session)
 		return
 	}
+}
+
+func (t *TCP) Close(session *session.Session) {
+	// Close the connection without sending disconnect
+	// To close and disconnect, see transport_node.go
+	conn, found := session.GetConn()
+
+	if found {
+		conn.Close()
+	}
+
+	// remove from session manager
+	// do not re-use conn object here -> potentially nil
+	toIP, toPort := session.To()
+	var to string
+	if toIP.To4() != nil {
+		to = toIP.String() + ":" + strconv.Itoa(int(toPort))
+	} else {
+		to = "[" + toIP.String() + "]:" + strconv.Itoa(int(toPort))
+	}
+	t.sessionManager.RemoveSession(to)
 }

@@ -58,9 +58,6 @@ func GenerateRandomEphemeralPrivateKey() (*ecies.PrivateKey, error) {
 }
 
 func GenerateSecrets(session *sess.Session) error {
-	// Once Secrets have been generated, can cleanup some session data
-	defer session.Cleanup()
-
 	// -----------------------
 	// GENERAL SECRETES
 

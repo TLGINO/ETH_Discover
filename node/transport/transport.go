@@ -5,7 +5,6 @@ import (
 	"errors"
 	"eth_discover/interfaces"
 	"eth_discover/rlpx"
-	"eth_discover/session"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
@@ -51,7 +50,6 @@ func (tn *TransportNode) StartHandShake() {
 	}()
 
 	for _, eNode := range filteredENodes {
-
 		session := tn.sessionManager.AddSession(eNode.IP, eNode.TCP)
 		session.SetInitiator() // Set ourselves as the initiator
 
@@ -66,18 +64,8 @@ func (tn *TransportNode) StartHandShake() {
 			return
 		}
 
-		tn.SendTCP(eNode.IP, eNode.TCP, authMessage)
+		tn.SendTCP(session, authMessage)
 	}
-}
-
-func (tn *TransportNode) TestHello(session *session.Session) {
-	helloFrame, err := rlpx.CreateFrameHello(session)
-	if err != nil {
-		log.Err(err).Str("component", "rlpx").Msg("error creating hello frame")
-		return
-	}
-	ip, port := session.To()
-	tn.SendTCP(ip, port, helloFrame)
 }
 
 func (tn *TransportNode) TestBlock() {
@@ -95,8 +83,7 @@ func (tn *TransportNode) TestBlock() {
 			// 	log.Err(err).Str("component", "rlpx").Msg("error creating getBlockHeaders frame")
 			// 	return
 			// }
-			ip, port := session.To()
-			tn.SendTCP(ip, port, getBlockFrame)
+			tn.SendTCP(session, getBlockFrame)
 		}
 	}
 }
