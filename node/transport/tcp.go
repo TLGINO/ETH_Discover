@@ -4,6 +4,7 @@ import (
 	"eth_discover/rlpx"
 	"eth_discover/session"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"time"
@@ -68,18 +69,31 @@ func (t *TCP) handleConnection(conn net.Conn) {
 		session.AddConn(conn)
 
 		// read from connection
-		err := conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-		if err != nil {
-			log.Error().Err(err).Msg("error setting read deadline")
-			return
-		}
+		// err := conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
+		// if err != nil {
+		// 	log.Error().Err(err).Msg("error setting read deadline")
+		// 	return
+		// }
 
 		// deserialize message
 		packet, pType, err := rlpx.DeserializePacket(conn, session, found)
 		if err != nil {
+			if err == io.EOF {
+				log.Warn().Msg("connection closed by remote")
+				return
+			}
+
+			// Handle specific network errors like "use of closed network connection"
+			if opErr, ok := err.(*net.OpError); ok && opErr.Err.Error() == "use of closed network connection" {
+				log.Warn().Msg("connection closed: use of closed network connection")
+				return
+			}
+
 			log.Error().Err(err).Msg("error received tcp data")
-			t.sessionManager.RemoveSession(ip)
-			return
+			// Not too sure whether to disconnect or not here
+			// t.sessionManager.RemoveSession(ip)
+			// return
+			continue
 		}
 
 		// exec callback

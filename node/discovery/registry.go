@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"eth_discover/discv4"
+	"eth_discover/interfaces"
 	"sync"
 
 	"github.com/rs/zerolog/log"
@@ -9,22 +10,22 @@ import (
 
 type Registry struct {
 	// byte is the packet data byte
-	callBacks map[byte]func(discv4.Packet, string)
+	callBacks map[byte]func(discv4.Packet, interfaces.NodeAddress)
 
 	lock sync.Mutex
 }
 
-func (r *Registry) AddCallBack(t byte, callback func(discv4.Packet, string)) {
+func (r *Registry) AddCallBack(t byte, callback func(discv4.Packet, interfaces.NodeAddress)) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
 	if r.callBacks == nil {
-		r.callBacks = make(map[byte]func(discv4.Packet, string))
+		r.callBacks = make(map[byte]func(discv4.Packet, interfaces.NodeAddress))
 	}
 	r.callBacks[t] = callback
 }
 
-func (r *Registry) ExecCallBack(pd *discv4.Packet, from string) {
+func (r *Registry) ExecCallBack(pd *discv4.Packet, from interfaces.NodeAddress) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 

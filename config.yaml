@@ -1,5 +1,5 @@
 udp_port: 33333
 tcp_port: 33333
 private_key: 61fe062119f23c92d061fc9856140fa13b1250c110fe4da2b48c5679b673d994
-max_peers: 4
+max_peers: 1000
 network_id: 1

@@ -2,60 +2,54 @@ package enr
 
 import (
 	G "eth_discover/global"
-	"sort"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
-type ENR struct {
-	Signature []byte
-	Seq       uint64
-	Pairs     []Pair
+type pair struct {
+	k string
+	v rlp.RawValue
 }
 
-// Pair represents a key/value pair in the ENR
-type Pair struct {
-	Key   string
-	Value interface{}
-}
-
-// func NewENR(seq uint64) *ENR {
-// 	return &ENR{
-// 		Seq:   seq,
-// 		Pairs: make([]Pair, 0),
-// 	}
-// }
-
-func (r *ENR) Set(key string, value interface{}) {
-	// Remove existing pair if present
-	for i := range r.Pairs {
-		if r.Pairs[i].Key == key {
-			r.Pairs = append(r.Pairs[:i], r.Pairs[i+1:]...)
-			break
-		}
-	}
-
-	r.Pairs = append(r.Pairs, Pair{Key: key, Value: value})
-	sort.Slice(r.Pairs, func(i, j int) bool {
-		return r.Pairs[i].Key < r.Pairs[j].Key
-	})
-}
-
-func (r *ENR) SignV4() error {
-	r.Set("id", "v4")
-
-	content, err := rlp.EncodeToBytes([]interface{}{r.Seq, r.Pairs})
+func GetENR() []byte {
+	// Encode the content: [seq, "id", "v4"]
+	entry, err := rlp.EncodeToBytes("v4")
 	if err != nil {
-		return err
+		panic("Error encoding ENR id: " + err.Error())
 	}
 
-	contentHash := crypto.Keccak256(content)
-	sig, err := crypto.Sign(contentHash, G.PRIVATE_KEY)
+	content := []pair{
+		{k: "id", v: entry},
+	}
+
+	// Flatten content into list: [seq, k, v, ...]
+	var contentList []interface{}
+	contentList = append(contentList, uint64(1)) // seq
+	for _, p := range content {
+		contentList = append(contentList, p.k, p.v)
+	}
+
+	contentRLP, err := rlp.EncodeToBytes(contentList)
 	if err != nil {
-		return err
+		panic("Error encoding content: " + err.Error())
 	}
 
-	r.Signature = sig[:64]
-	return nil
+	// Sign content: sig = sign(keccak256(content))
+	hash := crypto.Keccak256(contentRLP)
+	sig, err := crypto.Sign(hash, G.PRIVATE_KEY)
+	if err != nil {
+		panic("Error signing ENR: " + err.Error())
+	}
+	// Drop recovery ID (last byte)
+	sig = sig[:64]
+
+	// Build full record: [signature, seq, k, v, ...]
+	record := append([]interface{}{sig}, contentList...)
+	fullRLP, err := rlp.EncodeToBytes(record)
+	if err != nil {
+		panic("Error encoding ENR record: " + err.Error())
+	}
+
+	return fullRLP
 }

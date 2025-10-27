@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"eth_discover/discv4"
+	"eth_discover/interfaces"
 	"fmt"
 	"net"
 	"strings"
@@ -57,7 +58,12 @@ func (u *UDP) handleConnection(data []byte, addr *net.UDPAddr) {
 		log.Error().Err(err).Msg("error received udp data")
 		return
 	}
-	u.registry.ExecCallBack(packet, addr.IP.String())
+
+	nodeAddr := interfaces.NodeAddress{
+		IP:   addr.IP,
+		Port: addr.Port,
+	}
+	u.registry.ExecCallBack(packet, nodeAddr)
 }
 
 func (u *UDP) Send(to string, data []byte) {

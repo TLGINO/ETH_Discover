@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 )
 
 type ENode struct {
@@ -14,12 +15,15 @@ type ENode struct {
 	ID  [64]byte // secp256k1 public key
 }
 
+type NodeAddress struct {
+	IP   net.IP
+	Port int
+}
 type ENodeState int
 
 const (
 	NotBondedENode ENodeState = iota
 	BondedENode
-	AnsweredFindNode
 	InitiatedTransport
 )
 
@@ -35,11 +39,19 @@ type Config struct {
 	MaxPeers  uint16
 	NetworkID uint64
 }
+
+type TrackerInterface interface {
+	Add(request_id uint64, timeout time.Duration)
+	GetAndRemove(request_id uint64) bool
+}
+
 type NodeInterface interface {
 	Init() (*NodeInterface, error)
 	GetConfig() *Config
 	GetAllENodes() []EnodeTuple
+	TestAndSetEnode(e *ENode, oldState, newState ENodeState) bool
 	UpdateENode(e *ENode, state ENodeState)
+	GetTracker() TrackerInterface
 }
 
 // Create ENode

@@ -129,6 +129,15 @@ type Status struct {
 
 func (f Status) Type() uint64 { return 0x10 }
 
+// implements FrameContent
+type Transactions struct {
+	Transactions []*types.Transaction
+
+	Rest []rlp.RawValue `rlp:"tail"`
+}
+
+func (f Transactions) Type() uint64 { return 0x12 }
+
 // -------
 
 type HashOrNumber struct {
@@ -201,6 +210,26 @@ type NewPooledTransactionHashes struct {
 }
 
 func (f NewPooledTransactionHashes) Type() uint64 { return 0x18 }
+
+// -------
+
+// implements FrameContent
+type GetPooledTransactions struct {
+	RequestID uint64
+	Hashes    [][shaLen]byte
+}
+
+func (f GetPooledTransactions) Type() uint64 { return 0x19 }
+
+// -------
+
+// implements FrameContent
+type PooledTransactions struct {
+	RequestID    uint64
+	Transactions []*types.Transaction
+}
+
+func (f PooledTransactions) Type() uint64 { return 0x1a }
 
 //
 // ------------------------------------
@@ -330,7 +359,8 @@ func CreateFramePong(session *session.Session) ([]byte, error) {
 
 func CreateStatusMessage(session *session.Session) ([]byte, error) {
 
-	genesis, err := HexToBytes("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
+	// genesis, err := HexToBytes("a9c28ce2141b56c474f1dc504bee9b01eb1bd7d1a507580d5519d4437a97de1b") // polygon
+	genesis, err := HexToBytes("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3") // mainnet
 	if err != nil {
 		return nil, fmt.Errorf("error creating hex bytes block: %v", err)
 	}
@@ -377,6 +407,13 @@ func CreateFrameGetBlockBodies(session *session.Session) ([]byte, error) {
 	return createFrame(session, gbb)
 }
 
+func CreateGetPooledTransactions(session *session.Session, request_id uint64, hashes [][shaLen]byte) ([]byte, error) {
+	gpt := &GetPooledTransactions{
+		RequestID: request_id,
+		Hashes:    hashes,
+	}
+	return createFrame(session, gpt)
+}
 func createFrame(session *session.Session, frameContent FrameContent) ([]byte, error) {
 	msg_data, err := rlp.EncodeToBytes(frameContent)
 	if err != nil {
@@ -462,6 +499,10 @@ func (s *Status) String() string {
 	return fmt.Sprintf("Version: %d, NetworkID: %d, TotalDifficulty: %s, BlockHash: %x, Genesis: %x, ForkID: %v", s.Version, s.NetworkID, s.TotalDifficulty, s.BlockHash, s.Genesis, s.ForkID)
 }
 
+func (t *Transactions) String() string {
+	return fmt.Sprintf("Transactions: %d", len(t.Transactions))
+}
+
 func (gbh *GetBlockHeaders) String() string {
 	return fmt.Sprintf("RequestID: %d, Origin: {Hash: %x, Number: %d}, Amount: %d, Skip: %d, Reverse: %t",
 		gbh.RequestId, gbh.Origin.Hash, gbh.Origin.Number, gbh.Amount, gbh.Skip, gbh.Reverse)
@@ -485,5 +526,13 @@ func (nb *NewBlock) String() string {
 }
 
 func (n *NewPooledTransactionHashes) String() string {
-	return fmt.Sprintf("Types: %x, Sizes: %v, Hashes: %x", n.Types, n.Sizes, n.Hashes)
+	return fmt.Sprintf("Types: %x, Sizes: %v, N Hashes: %v", n.Types, n.Sizes, len(n.Hashes))
+}
+
+func (gpt *GetPooledTransactions) String() string {
+	return fmt.Sprintf("RequestID: %d, N Hashes: %v", gpt.RequestID, len(gpt.Hashes))
+}
+
+func (pt *PooledTransactions) String() string {
+	return fmt.Sprintf("RequestID: %d, N Transactions: %d", pt.RequestID, len(pt.Transactions))
 }

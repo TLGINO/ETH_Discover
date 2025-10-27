@@ -38,14 +38,14 @@ func (tn *TransportNode) StartHandShake() {
 	allENodeTuples := tn.node.GetAllENodes()
 	var filteredENodes []*interfaces.ENode
 	for _, enodeTuple := range allENodeTuples {
-		if enodeTuple.State == interfaces.AnsweredFindNode {
+		if enodeTuple.State == interfaces.BondedENode {
 			filteredENodes = append(filteredENodes, &enodeTuple.Enode)
 		}
 	}
 
 	defer func() {
 		for _, eNode := range filteredENodes {
-			tn.node.UpdateENode(eNode, interfaces.InitiatedTransport)
+			tn.node.TestAndSetEnode(eNode, interfaces.BondedENode, interfaces.InitiatedTransport)
 		}
 	}()
 

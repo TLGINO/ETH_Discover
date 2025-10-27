@@ -2,8 +2,6 @@
 package node
 
 import (
-	"eth_discover/enr"
-	G "eth_discover/global"
 	"eth_discover/interfaces"
 	"eth_discover/node/discovery"
 	"eth_discover/node/transport"
@@ -18,9 +16,9 @@ type Node struct {
 	discoveryNode *discovery.DiscoveryNode
 	transportNode *transport.TransportNode
 
-	enr *enr.ENR
-
 	config *interfaces.Config
+
+	tracker interfaces.TrackerInterface
 }
 
 // interface function
@@ -40,17 +38,17 @@ func Init(config *interfaces.Config) (*Node, error) {
 	n := &Node{
 		discoveryNode: discovery_node,
 		transportNode: transport_node,
-		enr:           &enr.ENR{},
 
-		config: config,
+		config:  config,
+		tracker: &Tracker{},
 	}
 	discovery_node.SetNode(n)
 	transport_node.SetNode(n)
 
-	n.enr.Set("ip", config.Ip)
-	n.enr.Set("secp256k1", G.COMPRESSED_PUBLIC_KEY)
-	n.enr.Set("udp", config.UdpPort)
-	n.enr.Set("tcp", config.TcpPort)
+	// n.enr.Set("ip", config.Ip)
+	// n.enr.Set("secp256k1", G.COMPRESSED_PUBLIC_KEY)
+	// n.enr.Set("udp", config.UdpPort)
+	// n.enr.Set("tcp", config.TcpPort)
 
 	return n, nil
 }
@@ -66,6 +64,11 @@ func (n *Node) GetAllENodes() []interfaces.EnodeTuple {
 }
 
 // interface function
+func (n *Node) TestAndSetEnode(e *interfaces.ENode, oldState, newState interfaces.ENodeState) bool {
+	return n.discoveryNode.TestAndSetEnode(e, oldState, newState)
+}
+
+// interface function
 func (n *Node) UpdateENode(e *interfaces.ENode, state interfaces.ENodeState) {
 	n.discoveryNode.UpdateENode(e, state)
 }
@@ -76,4 +79,8 @@ func (n *Node) GetDiscoveryNode() *discovery.DiscoveryNode {
 
 func (n *Node) GetTransportNode() *transport.TransportNode {
 	return n.transportNode
+}
+
+func (n *Node) GetTracker() interfaces.TrackerInterface {
+	return n.tracker
 }

@@ -45,7 +45,7 @@ func DeserializePacket(data []byte) (*Packet, error) {
 	}
 	err := deserializePacket(packetData, resolved_packet)
 	if err != nil {
-		return nil, fmt.Errorf("failed to deserialize packet data: %w", err)
+		return nil, fmt.Errorf("failed to deserialize packet data, type: %v: %w ", p.Header.Type, err)
 	}
 	p.Data = resolved_packet
 

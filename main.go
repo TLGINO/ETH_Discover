@@ -16,16 +16,16 @@ import (
 )
 
 func main() {
-	// PARSE ARGS
+	// Parse args
 	filterComponent := flag.String("component", "", "Filter logs by component name")            // eth, discv4
 	excludesFilterComponent := flag.String("xcomponent", "", "Excludes logs by component name") // eth, discv4
 	configPath := flag.String("config", "", "Set config file")
 	flag.Parse()
 
-	// LOGGER SETUP
+	// Logger setup
 	conf.SetupLogger(filterComponent, excludesFilterComponent)
 
-	// CONFIG SETUP
+	// config setup
 	config, privateKey, err := conf.SetupConfig(configPath)
 	if err != nil {
 		log.Error().Err(err).Msg("error generating config")
@@ -33,18 +33,14 @@ func main() {
 	}
 	G.SetPK(privateKey)
 	G.SetConfig(config)
-	// my public id: 0e9b22e0238dc83a7699b5fb87bcdafb2985474081626b0e36fb46d1db03572a
 
-	// NODE SETUP
+	// Node setup
 	n, err := node.Init(config)
 	if err != nil {
 		log.Error().Err(err).Msg("")
 		return
 	}
-	// if config.TcpPort == 33333 {
-	// 	for {
-	// 	}
-	// }
+
 	// Give the server time to start
 	time.Sleep(time.Second)
 
@@ -80,7 +76,7 @@ func main() {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
-		log.Info().Msgf("Disconnecting from all nodes")
+		log.Info().Msgf("Disconnecting from all nodes: %v", len(transport_node.GetSessionManager().GetAllSessions()))
 		transport_node.Cleanup()
 		os.Exit(-1)
 	}()
@@ -91,5 +87,6 @@ func main() {
 	// 		transport_node.TestBlock()
 	// 	}
 	// }()
+
 	select {}
 }

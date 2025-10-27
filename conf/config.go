@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -154,20 +155,19 @@ func SetupConfig(path *string) (*interfaces.Config, *ecdsa.PrivateKey, error) {
 }
 
 func getPublicIP() (net.IP, error) {
-	// var ip struct {
-	// 	Query string `json:"query"`
-	// }
-	// resp, err := http.Get("http://ip-api.com/json/")
-	// if err != nil {
-	// 	return nil, err
-	// }
+	var ip struct {
+		Query string `json:"query"`
+	}
+	resp, err := http.Get("http://ip-api.com/json/")
+	if err != nil {
+		return nil, err
+	}
 
-	// defer resp.Body.Close()
-	// err = json.NewDecoder(resp.Body).Decode(&ip)
+	defer resp.Body.Close()
+	err = json.NewDecoder(resp.Body).Decode(&ip)
 
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// return net.ParseIP(ip.Query), nil
-	return net.ParseIP("80.11.78.178"), nil
+	if err != nil {
+		return nil, err
+	}
+	return net.ParseIP(ip.Query), nil
 }

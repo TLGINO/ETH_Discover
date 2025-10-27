@@ -1,7 +1,6 @@
 package discv4
 
 import (
-	"eth_discover/enr"
 	G "eth_discover/global"
 	"eth_discover/interfaces"
 	"fmt"
@@ -38,7 +37,7 @@ type Endpoint struct {
 
 // implements PacketData
 type Ping struct {
-	Version    uint64
+	Version    uint
 	From       Endpoint
 	To         Endpoint
 	Expiration uint64 // Unix timestamp
@@ -55,7 +54,7 @@ func (p Ping) Type() byte { return 0x01 }
 // implements PacketData
 type Pong struct {
 	To         Endpoint // Endpoint of the original ping sender
-	PingHash   [32]byte // Hash of the corresponding ping packet
+	PingHash   []byte   // Hash of the corresponding ping packet
 	Expiration uint64   // Unix timestamp when this packet expires
 	ENRSeq     uint64   `rlp:"optional"` // Optional ENR sequence number
 
@@ -104,8 +103,8 @@ func (e ENRRequest) Type() byte { return 0x05 }
 
 // implements PacketData
 type ENRResponse struct {
-	RequestHash [32]byte // Hash of the entire ENRRequest packet being replied to
-	ENR         enr.ENR
+	RequestHash []byte // Hash of the entire ENRRequest packet being replied to
+	ENR         []byte
 
 	Rest []rlp.RawValue `rlp:"tail"`
 }
@@ -157,7 +156,7 @@ func NewPacket(pd PacketData) (*Packet, []byte, error) {
 // Creating Packets
 //
 
-func NewPingPacket(version uint64, from Endpoint, to Endpoint, expiration uint64) (*Packet, []byte, error) {
+func NewPingPacket(version uint, from Endpoint, to Endpoint, expiration uint64) (*Packet, []byte, error) {
 	ping := Ping{
 		Version:    version,
 		From:       from,
@@ -167,7 +166,7 @@ func NewPingPacket(version uint64, from Endpoint, to Endpoint, expiration uint64
 	}
 	return NewPacket(ping)
 }
-func NewPongPacket(to Endpoint, hash [32]byte, expiration uint64) (*Packet, []byte, error) {
+func NewPongPacket(to Endpoint, hash []byte, expiration uint64) (*Packet, []byte, error) {
 	pong := Pong{
 		To:         to,
 		PingHash:   hash,
@@ -178,7 +177,16 @@ func NewPongPacket(to Endpoint, hash [32]byte, expiration uint64) (*Packet, []by
 }
 func NewFindNodePacket(expiration uint64) (*Packet, []byte, error) {
 
-	publicKeyBytes := crypto.FromECDSAPub(G.PUBLIC_KEY)
+	// use my public key to find close nodes
+	// publicKeyBytes := crypto.FromECDSAPub(G.PUBLIC_KEY)
+	// pubBytes := crypto.Keccak256Hash(publicKeyBytes)
+
+	// Generate a random secp256k1 public key
+	privateKey, err := crypto.GenerateKey()
+	if err != nil {
+		return nil, nil, err
+	}
+	publicKeyBytes := crypto.FromECDSAPub(&privateKey.PublicKey)
 	pubBytes := crypto.Keccak256Hash(publicKeyBytes)
 
 	var target [64]byte
@@ -196,10 +204,10 @@ func NewENRRequestPacket(expiration uint64) (*Packet, []byte, error) {
 	}
 	return NewPacket(enrRequest)
 }
-func NewENRResponsePacket(hash [32]byte, enr enr.ENR) (*Packet, []byte, error) {
+func NewENRResponsePacket(hash []byte, enrData []byte) (*Packet, []byte, error) {
 	enrResponse := ENRResponse{
 		RequestHash: hash,
-		ENR:         enr,
+		ENR:         enrData,
 	}
 	return NewPacket(enrResponse)
 }

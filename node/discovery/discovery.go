@@ -8,7 +8,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var responseTimeout = 1200 * time.Millisecond
+var responseTimeout = 10 * time.Second
 
 // Bind binds a node
 // Sends a Ping, awaits a corresponding Pong, returns the address of the binded bootnode
@@ -44,7 +44,7 @@ func (dn *DiscoveryNode) Bind() {
 			TCP: 0,
 		}
 
-		expiration := uint64(time.Now().Add(50 * time.Second).Unix())
+		expiration := uint64(time.Now().Add(responseTimeout).Unix())
 
 		pingPacket, pingData, err := discv4.NewPingPacket(4, from, to, expiration)
 		if err != nil {
@@ -66,7 +66,7 @@ func (dn *DiscoveryNode) Bind() {
 		select {
 		case <-resp.ch:
 			log.Info().Str("component", "discv4").Msgf("Bonded with node: %x", resp.enode.ID)
-			dn.UpdateENode(resp.enode, interfaces.BondedENode)
+			dn.TestAndSetEnode(resp.enode, interfaces.NotBondedENode, interfaces.BondedENode)
 		default:
 			log.Info().Str("component", "discv4").Msg("Timeout waiting for pong response, trying with new node")
 		}
@@ -80,7 +80,7 @@ func (dn *DiscoveryNode) Find() {
 	allENodeTuples := dn.GetAllENodes()
 	var filteredENodes []*interfaces.ENode
 	for _, enodeTuple := range allENodeTuples {
-		if enodeTuple.State == interfaces.BondedENode {
+		if enodeTuple.State >= interfaces.BondedENode {
 			filteredENodes = append(filteredENodes, &enodeTuple.Enode)
 		}
 	}
@@ -93,7 +93,7 @@ func (dn *DiscoveryNode) Find() {
 	responses := make([]nodeResponse, 0, len(filteredENodes))
 
 	for _, eNode := range filteredENodes {
-		expiration := uint64(time.Now().Add(50 * time.Second).Unix())
+		expiration := uint64(time.Now().Add(responseTimeout).Unix())
 
 		_, findNodeData, err := discv4.NewFindNodePacket(expiration)
 		if err != nil {
@@ -114,7 +114,6 @@ func (dn *DiscoveryNode) Find() {
 		select {
 		case <-resp.ch:
 			log.Info().Str("component", "discv4").Msgf("Received Neighbours from node %s", resp.enode.IP.String())
-			dn.UpdateENode(resp.enode, interfaces.AnsweredFindNode)
 		default:
 			log.Info().Str("component", "discv4").Msgf("Timeout waiting for neighbours from %s", resp.enode.IP.String())
 		}

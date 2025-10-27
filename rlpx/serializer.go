@@ -273,6 +273,8 @@ func handleFrame(conn io.Reader, session *session.Session) (Packet, error) {
 		resolved_frame = &FramePong{}
 	case 16:
 		resolved_frame = &Status{}
+	case 18:
+		resolved_frame = &Transactions{}
 	case 19:
 		resolved_frame = &GetBlockHeaders{}
 	case 21:
@@ -283,6 +285,10 @@ func handleFrame(conn io.Reader, session *session.Session) (Packet, error) {
 		resolved_frame = &NewBlock{}
 	case 24:
 		resolved_frame = &NewPooledTransactionHashes{}
+	case 25:
+		resolved_frame = &GetPooledTransactions{}
+	case 26:
+		resolved_frame = &PooledTransactions{}
 	default:
 		return nil, fmt.Errorf("unknown frame type: %d", code)
 	}
