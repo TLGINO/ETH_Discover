@@ -35,6 +35,15 @@ func Init() (*DiscoveryNode, error) {
 		awaitNeighbour: make(map[string]chan struct{}),
 	}
 
+	return &dn, nil
+}
+
+func (dn *DiscoveryNode) SetNode(n interfaces.NodeInterface) {
+	dn.node = n
+	if err := dn.udp.Init(n.GetConfig().UdpPort, dn.registry, dn); err != nil {
+		log.Err(err).Msg("")
+	}
+
 	// taken from https://github.com/ethereum/go-ethereum/blob/master/params/bootnodes.go
 	// mainnet
 	e1 := interfaces.CreateEnode("enode://d860a01f9722d78051619d1e2351aba3f43f943f6f00718d1b9baa4101932a1f5011f16bb2b1bb35db20d6fe28fa0bf09636d26a87d31de9ec6203eeedb1f666@18.138.108.67:30303") // bootnode-aws-ap-southeast-1-001
@@ -94,14 +103,6 @@ func Init() (*DiscoveryNode, error) {
 	dn.registry.AddCallBack(0x05, dn.ExecENRRequest)
 	dn.registry.AddCallBack(0x06, dn.ExecENRResponse)
 
-	return &dn, nil
-}
-
-func (dn *DiscoveryNode) SetNode(n interfaces.NodeInterface) {
-	dn.node = n
-	if err := dn.udp.Init(n.GetConfig().UdpPort, dn.registry); err != nil {
-		log.Err(err).Msg("")
-	}
 }
 
 func (dn *DiscoveryNode) SendUDP(toIP net.IP, toPort uint16, data []byte) {
@@ -124,6 +125,8 @@ func (dn *DiscoveryNode) AddENode(e *interfaces.ENode) {
 	defer dn.eNodesLock.Unlock()
 	if _, exists := dn.eNodes[e.ID]; !exists {
 		dn.eNodes[e.ID] = interfaces.EnodeTuple{Enode: *e, State: interfaces.NotBondedENode}
+		// DB logging
+		dn.node.InsertNodeDiscv4(e.ID)
 	}
 }
 func (dn *DiscoveryNode) UpdateENode(e *interfaces.ENode, state interfaces.ENodeState) {

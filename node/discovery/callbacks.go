@@ -40,6 +40,15 @@ func (dn *DiscoveryNode) ExecFindNode(m discv4.Packet, from interfaces.NodeAddre
 	findNode := m.Data.(*discv4.FindNode)
 	log.Info().Str("component", "discv4").Msgf("received findNode: %s", findNode)
 	// [TODO] respond
+
+	expiration := uint64(time.Now().Add(50 * time.Second).Unix())
+	_, neighborsData, err := discv4.NewNeighborsPacket(expiration)
+	if err != nil {
+		log.Err(err).Str("component", "discv4").Msg("error creating Neighbors")
+		return
+	}
+	dn.SendUDP(from.IP, uint16(from.Port), neighborsData)
+
 }
 func (dn *DiscoveryNode) ExecNeighbors(m discv4.Packet, from interfaces.NodeAddress) {
 	neighbors := m.Data.(*discv4.Neighbors)

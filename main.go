@@ -1,7 +1,7 @@
-// main.go
 package main
 
 import (
+	"context"
 	"eth_discover/conf"
 	G "eth_discover/global"
 	"eth_discover/node"
@@ -48,45 +48,64 @@ func main() {
 	transport_node := n.GetTransportNode()
 	session_manager := transport_node.GetSessionManager()
 
+	// Create context for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+
 	// discv4 | Find new nodes
 	go func() {
-		// while / whenever we have too few nodes, find more
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
 		for {
-			sessionLen := len(session_manager.GetAllSessions())
-			log.Info().Msgf("Connected to %d nodes", sessionLen)
-			if sessionLen < int(config.MaxPeers) {
-				discovery_node.Bind()
-				discovery_node.Find()
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				sessionLen := len(session_manager.GetAllSessions())
+				log.Info().Msgf("Connected to %d nodes", sessionLen)
+				if sessionLen < int(config.MaxPeers) {
+					discovery_node.Bind()
+					discovery_node.Find()
+				}
 			}
-			time.Sleep(2 * time.Second)
 		}
 	}()
 
 	// rlpx | Connect to new nodes
 	go func() {
+		ticker := time.NewTicker(3600 * time.Second)
+		defer ticker.Stop()
 		for {
-			transport_node.StartHandShake()
-			time.Sleep(2 * time.Second)
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				transport_node.StartHandShake()
+			}
+		}
+	}()
 
+	// rlpx | Send frame pings regularly
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				transport_node.SendPing()
+			}
 		}
 	}()
 
 	// gracefully disconnect from nodes
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-c
-		log.Info().Msgf("Disconnecting from all nodes: %v", len(transport_node.GetSessionManager().GetAllSessions()))
-		transport_node.Cleanup()
-		os.Exit(-1)
-	}()
+	<-c
 
-	// rlpx | Request blocks
-	// go func() {
-	// 	for {
-	// 		transport_node.TestBlock()
-	// 	}
-	// }()
-
-	select {}
+	log.Info().Msgf("Disconnecting from all nodes: %v", len(session_manager.GetAllSessions()))
+	cancel() // Signal all goroutines to stop
+	time.Sleep(2 * time.Second)
+	transport_node.Cleanup()
+	os.Exit(0)
 }

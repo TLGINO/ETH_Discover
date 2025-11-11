@@ -1,15 +1,13 @@
 package transport
 
 import (
-	"encoding/hex"
 	"eth_discover/rlpx"
 
+	G "eth_discover/global"
 	"eth_discover/session"
 	"math/rand"
-	"os"
 	"time"
 
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -88,12 +86,16 @@ func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
 		}
 		tn.SendTCP(session, status)
 		session.SetBonded()
+		session.SetNodeID(frame.ClientID, frame.NodeID)
 
 	case *rlpx.FrameDisconnect:
-		log.Info().Str("component", "eth").Msgf("received disconnect frame %v", frame.String())
+		ip, _ := session.To()
+		log.Info().Str("component", "eth").Msgf("received disconnect frame %v from %v", frame.String(), ip.String())
 
 		// disconnect and cleanup
 		tn.Disconnect(session, 0)
+		disc := f.(*rlpx.FrameDisconnect)
+		tn.node.InsertNodeDisconnect(session, disc)
 
 	case *rlpx.FramePing:
 		log.Info().Str("component", "eth").Msg("received ping frame")
@@ -109,27 +111,33 @@ func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
 	case *rlpx.Status:
 		log.Info().Str("component", "eth").Msgf("received status frame %v", frame.String())
 
+		// log it
+		status := f.(*rlpx.Status)
+		tn.node.InsertNodeStatus(session, status)
 		// Check if suitable based on our config
-		// if frame.NetworkID != G.CONFIG.NetworkID {
-		// 	// disconnect and cleanup
-		// 	tn.Disconnect(session, 0x03)
-		// 	return
-		// }
+		if frame.NetworkID != G.CONFIG.NetworkID {
+			// disconnect and cleanup
+			tn.Disconnect(session, 0x03)
+			return
+		}
 		session.SetBonded()
 	case *rlpx.Transactions:
 		log.Info().Str("component", "eth").Msgf("received transaction frame %v", frame.String())
 
 		transactions := f.(*rlpx.Transactions)
 		for _, tx := range transactions.Transactions {
-			writeTXtoFile(tx)
+			tn.node.InsertTX(session, tx)
 		}
 
 	case *rlpx.GetBlockHeaders:
 		log.Info().Str("component", "eth").Msgf("received getBlockHeaders frame %v", frame.String())
+		// panic("1")
 	case *rlpx.GetBlockBodies:
 		log.Info().Str("component", "eth").Msgf("received getBlockBodies frame %v", frame.String())
+		// panic("2")
 	case *rlpx.BlockBodies:
 		log.Info().Str("component", "eth").Msgf("received blockBodies frame %v", frame.String())
+		// panic("3")
 	case *rlpx.NewBlock:
 		log.Info().Str("component", "eth").Msgf("received newBlock frame %v", frame.String())
 	case *rlpx.NewPooledTransactionHashes:
@@ -158,7 +166,7 @@ func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
 
 	case *rlpx.GetPooledTransactions:
 		log.Info().Str("component", "eth").Msgf("received getPooledTransactions frame %v", frame.String())
-
+		// panic("4")
 	case *rlpx.PooledTransactions:
 		log.Info().Str("component", "eth").Msgf("received pooledTransactions frame %v", frame.String())
 		pooledTransactions := f.(*rlpx.PooledTransactions)
@@ -167,37 +175,10 @@ func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
 		if found {
 			println("Found my transactions!")
 			for _, tx := range pooledTransactions.Transactions {
-				writeTXtoFile(tx)
+				tn.node.InsertTX(session, tx)
 			}
 		}
 	default:
 		log.Warn().Str("component", "eth").Msg("received unknown frame type")
-	}
-}
-
-func writeTXtoFile(tx *types.Transaction) {
-	file, err := os.OpenFile(
-		"/home/martin/Documents/Code/eth_discover/node/transport/pooled_transactions.txt",
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
-		0644,
-	)
-	if err != nil {
-		log.Err(err).Msg("failed to create transactions file")
-		return
-	}
-	defer file.Close()
-
-	// Marshal to canonical Ethereum format
-	raw, err := tx.MarshalBinary()
-	if err != nil {
-		log.Err(err).Msg("failed to marshal transaction")
-		return
-	}
-
-	// Write as hex (so it's easily readable and can be re-imported)
-	_, err = file.WriteString("0x" + hex.EncodeToString(raw) + "\n")
-	if err != nil {
-		log.Err(err).Msg("failed to write transaction to file")
-		return
 	}
 }

@@ -120,6 +120,9 @@ type peer struct {
 	IP   net.IP
 	TCP  uint16
 	conn net.Conn
+	// taken from first hello message
+	ClientID string   // Specifies the client software identity, as a human-readable string (e.g. "Ethereum(++)/1.0.0").
+	NodeID   [64]byte // secp256k1 public key
 }
 
 type peerNonces struct {
@@ -165,6 +168,14 @@ func (s *Session) GetConn() (net.Conn, bool) {
 }
 func (s *Session) To() (net.IP, uint16) {
 	return s.peer.IP, s.peer.TCP
+}
+
+func (s *Session) SetNodeID(clientID string, nodeID [64]byte) {
+	s.peer.ClientID = clientID
+	s.peer.NodeID = nodeID
+}
+func (s *Session) GetNodeID() (string, [64]byte) {
+	return s.peer.ClientID, s.peer.NodeID
 }
 
 // ----
@@ -263,7 +274,7 @@ func (sm *SessionManager) AddSession(ip net.IP, tcp_port uint16) *Session {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
 	session := &Session{
-		peer: &peer{IP: ip, TCP: tcp_port, conn: nil},
+		peer: &peer{IP: ip, TCP: tcp_port, conn: nil, ClientID: "", NodeID: [64]byte{}},
 		handShakeState: &handShakeState{
 			isInitiator:              false,
 			nonces:                   &peerNonces{},

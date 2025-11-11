@@ -1,10 +1,10 @@
 package transport
 
 import (
+	_ "github.com/mattn/go-sqlite3"
+
 	"eth_discover/interfaces"
-	"eth_discover/rlpx"
 	"eth_discover/session"
-	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -19,6 +19,7 @@ type TransportNode struct {
 }
 
 func Init() (*TransportNode, error) {
+
 	tn := TransportNode{
 		tcp:      new(TCP),
 		registry: &Registry{},
@@ -35,7 +36,7 @@ func Init() (*TransportNode, error) {
 
 func (tn *TransportNode) SetNode(n interfaces.NodeInterface) {
 	tn.node = n
-	if err := tn.tcp.Init(n.GetConfig().TcpPort, tn.registry, tn.sessionManager); err != nil {
+	if err := tn.tcp.Init(n.GetConfig().TcpPort, tn.registry, tn.sessionManager, tn); err != nil {
 		log.Err(err).Msg("")
 	}
 }
@@ -46,20 +47,6 @@ func (tn *TransportNode) GetSessionManager() *session.SessionManager {
 
 func (tn *TransportNode) SendTCP(session *session.Session, data []byte) {
 	tn.tcp.Send(session, data)
-}
-
-func (tn *TransportNode) Disconnect(session *session.Session, reason uint64) {
-	// Send disconnect then close connection
-	disconnect, err := rlpx.CreateFrameDisconnect(session, reason)
-	if err != nil {
-		log.Err(err).Str("component", "eth").Msg("error creating disconnect message")
-		return
-	}
-	tn.SendTCP(session, disconnect)
-	// sleep 2 seconds, as per protocol request
-	time.Sleep(2 * time.Second)
-
-	tn.tcp.Close(session)
 }
 
 func (tn *TransportNode) Cleanup() {

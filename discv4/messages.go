@@ -175,6 +175,16 @@ func NewPongPacket(to Endpoint, hash []byte, expiration uint64) (*Packet, []byte
 	}
 	return NewPacket(pong)
 }
+
+func NewNeighborsPacket(expiration uint64) (*Packet, []byte, error) {
+	neighbors := Neighbors{
+		Nodes:      []interfaces.ENode{},
+		Expiration: expiration,
+	}
+
+	return NewPacket(neighbors)
+}
+
 func NewFindNodePacket(expiration uint64) (*Packet, []byte, error) {
 
 	// use my public key to find close nodes

@@ -5,7 +5,6 @@ import (
 	"eth_discover/interfaces"
 	"fmt"
 	"net"
-	"strings"
 
 	"github.com/rs/zerolog/log"
 )
@@ -13,10 +12,11 @@ import (
 type UDP struct {
 	conn     *net.UDPConn
 	port     uint16
-	registry *Registry // <- dependency injection
+	registry *Registry      // <- dependency injection
+	dn       *DiscoveryNode // <- dependency injection
 }
 
-func (u *UDP) Init(port uint16, registry *Registry) error {
+func (u *UDP) Init(port uint16, registry *Registry, dn *DiscoveryNode) error {
 	u.port = port
 	addr := fmt.Sprintf(":%d", u.port)
 
@@ -31,6 +31,7 @@ func (u *UDP) Init(port uint16, registry *Registry) error {
 	}
 	u.conn = conn
 	u.registry = registry
+	u.dn = dn
 
 	go u.handleConnections()
 	return nil
@@ -56,6 +57,17 @@ func (u *UDP) handleConnection(data []byte, addr *net.UDPAddr) {
 	packet, err := discv4.DeserializePacket(data)
 	if err != nil {
 		log.Error().Err(err).Msg("error received udp data")
+
+		// Maybe the error was due to discv5
+		// In which case, attempt to initialize connection using discv4
+		// To do this, add node such that it will get picked up by the bonding process
+		enode := interfaces.ENode{
+			IP:  addr.IP,
+			UDP: uint16(addr.Port),
+			TCP: 0,
+		}
+		u.dn.AddENode(&enode)
+
 		return
 	}
 
@@ -68,28 +80,13 @@ func (u *UDP) handleConnection(data []byte, addr *net.UDPAddr) {
 
 func (u *UDP) Send(to string, data []byte) {
 
-	// Check if address contains more than one colon (indicating IPv6)
-	if strings.Count(to, ":") > 1 {
-		// Split the address and port
-		lastColon := strings.LastIndex(to, ":")
-		if lastColon == -1 {
-			log.Error().Err(fmt.Errorf("invalid address format")).Msgf("invalid address format: %s", to)
-			return
-		}
-
-		ipStr := to[:lastColon]
-		portStr := to[lastColon+1:]
-
-		// If IPv6 address isn't already wrapped in brackets, wrap it
-		if !strings.HasPrefix(ipStr, "[") {
-			ipStr = "[" + ipStr + "]"
-		}
-
-		// Recombine with port
-		to = ipStr + ":" + portStr
+	host, port, err := net.SplitHostPort(to)
+	if err != nil {
+		log.Error().Err(err).Msgf("invalid address format: %s", to)
+		return
 	}
 
-	addr, err := net.ResolveUDPAddr("udp", to)
+	addr, err := net.ResolveUDPAddr("udp", net.JoinHostPort(host, port))
 	if err != nil {
 		log.Error().Err(err).Msgf("error resolving UDP address: %v", addr)
 		return

@@ -52,33 +52,3 @@ Originally, this project aimed to implement a **full Ethereum node** capable of 
 [eth/wire](https://github.com/ethereum/devp2p/blob/master/caps/eth.md).  
 
 That groundwork remains valuable for understanding Ethereum’s network layer and continues to inform the current direction.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

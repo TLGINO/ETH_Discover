@@ -2,11 +2,16 @@
 package node
 
 import (
+	"database/sql"
+	"encoding/hex"
 	"eth_discover/interfaces"
 	"eth_discover/node/discovery"
 	"eth_discover/node/transport"
+	"eth_discover/rlpx"
+	"eth_discover/session"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -19,6 +24,7 @@ type Node struct {
 	config *interfaces.Config
 
 	tracker interfaces.TrackerInterface
+	db      *sql.DB
 }
 
 // interface function
@@ -35,12 +41,17 @@ func Init(config *interfaces.Config) (*Node, error) {
 		return nil, fmt.Errorf("error creating transport node: %v", err)
 	}
 
+	db, err := initDB()
+	if err != nil {
+		return nil, fmt.Errorf("error creating sqlite db: %v", err)
+	}
 	n := &Node{
 		discoveryNode: discovery_node,
 		transportNode: transport_node,
 
 		config:  config,
 		tracker: &Tracker{},
+		db:      db,
 	}
 	discovery_node.SetNode(n)
 	transport_node.SetNode(n)
@@ -83,4 +94,139 @@ func (n *Node) GetTransportNode() *transport.TransportNode {
 
 func (n *Node) GetTracker() interfaces.TrackerInterface {
 	return n.tracker
+}
+
+func initDB() (*sql.DB, error) {
+	// create db
+	db, err := sql.Open("sqlite3", "./tx_data.db")
+	if err != nil {
+		return nil, err
+	}
+	// create table
+	sql := `
+	CREATE TABLE IF NOT EXISTS TRANSACTIONS (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		client_ip TEXT NOT NULL,
+		client_id TEXT NOT NULL,
+		node_id TEXT NOT NULL,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+		tx TEXT NOT NULL
+	);
+	CREATE TABLE IF NOT EXISTS NODE_STATUS (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		client_ip TEXT NOT NULL,
+		client_id TEXT NOT NULL,
+		node_id TEXT NOT NULL,
+		s_version TEXT NOT NULL,
+		s_network_id TEXT NOT NULL,
+		s_td TEXT NOT NULL,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+	CREATE TABLE IF NOT EXISTS NODE_DISCONNECT (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		client_ip TEXT NOT NULL,
+		client_id TEXT NOT NULL,
+		node_id TEXT NOT NULL,
+		disconnect_reason TEXT NOT NULL,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+	CREATE TABLE IF NOT EXISTS NODE_DISCV4 (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		node_id TEXT NOT NULL,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		`
+
+	_, err = db.Exec(sql)
+	if err != nil {
+		return nil, err
+	}
+
+	return db, nil
+}
+
+func (n *Node) InsertTX(session *session.Session, data interface{}) {
+	tx, _ := data.(*types.Transaction)
+
+	// Parse transaction
+	raw, err := tx.MarshalBinary()
+	if err != nil {
+		log.Err(err).Msg("failed to marshal transaction")
+		return
+	}
+	tx_data := ("0x" + hex.EncodeToString(raw))
+
+	// Get node data
+	net_ip, _ := session.To()
+	ip := net_ip.String()
+	clientID, nodeIDRaw := session.GetNodeID()
+	nodeID := hex.EncodeToString(nodeIDRaw[:])
+
+	// Write to db
+	sql := `
+	INSERT INTO TRANSACTIONS (client_ip, client_id, node_id, tx)
+	VALUES (?, ?, ?, ?)`
+	_, err = n.db.Exec(sql, ip, clientID, nodeID, tx_data)
+	if err != nil {
+		log.Err(err).Msg("failed to insert transaction into database")
+		return
+	}
+}
+func (n *Node) InsertNodeStatus(session *session.Session, data interface{}) {
+	status, _ := data.(*rlpx.Status)
+	// Get node data
+	net_ip, _ := session.To()
+	ip := net_ip.String()
+	clientID, nodeIDRaw := session.GetNodeID()
+	nodeID := hex.EncodeToString(nodeIDRaw[:])
+
+	// Write to db
+
+	sql := `
+	INSERT INTO NODE_STATUS (client_ip, client_id, node_id, s_version, s_network_id, s_td)
+	VALUES (?, ?, ?, ?, ?, ?)`
+	_, err := n.db.Exec(sql, ip, clientID, nodeID, status.Version, status.NetworkID, status.TotalDifficulty.String())
+	if err != nil {
+		log.Err(err).Msg("failed to insert transaction into database")
+		return
+	}
+
+}
+func (n *Node) InsertNodeDisconnect(session *session.Session, data interface{}) {
+	disconnect, _ := data.(*rlpx.FrameDisconnect)
+
+	// Get node data
+	net_ip, _ := session.To()
+	ip := net_ip.String()
+	clientID, nodeIDRaw := session.GetNodeID()
+	nodeID := hex.EncodeToString(nodeIDRaw[:])
+
+	// Write to db
+
+	sql := `
+	INSERT INTO NODE_DISCONNECT (client_ip, client_id, node_id, disconnect_reason)
+	VALUES (?, ?, ?, ?)`
+	_, err := n.db.Exec(sql, ip, clientID, nodeID, disconnect.Reason)
+	if err != nil {
+		log.Err(err).Msg("failed to insert disc reason into database")
+		return
+	}
+
+}
+func (n *Node) InsertNodeDiscv4(id [64]byte) {
+
+	// Get node data
+	nodeID := hex.EncodeToString(id[:])
+
+	// Write to db
+
+	sql := `
+	INSERT INTO NODE_DISCV4 (node_id)
+	VALUES (?)`
+	_, err := n.db.Exec(sql, nodeID)
+	if err != nil {
+		log.Err(err).Msg("failed to insert nodeID into database")
+		return
+	}
+
 }

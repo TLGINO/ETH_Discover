@@ -118,6 +118,8 @@ func handleAuthMessage(conn io.Reader, session *session.Session) (Packet, error)
 
 func handleAuthAck(conn io.Reader, session *session.Session) (Packet, error) {
 	// prefix := data[0:2]
+	session.Rbuf.Reset()
+
 	prefix, err := session.Rbuf.Read(conn, 2)
 	if err != nil {
 		return nil, err

@@ -2,6 +2,7 @@ package interfaces
 
 import (
 	"encoding/hex"
+	"eth_discover/session"
 	"fmt"
 	"net"
 	"strings"
@@ -51,6 +52,10 @@ type NodeInterface interface {
 	GetAllENodes() []EnodeTuple
 	TestAndSetEnode(e *ENode, oldState, newState ENodeState) bool
 	UpdateENode(e *ENode, state ENodeState)
+	InsertTX(session *session.Session, tx interface{})
+	InsertNodeStatus(session *session.Session, status interface{})
+	InsertNodeDisconnect(session *session.Session, disconnect interface{})
+	InsertNodeDiscv4(id [64]byte)
 	GetTracker() TrackerInterface
 }
 

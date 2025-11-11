@@ -5,7 +5,9 @@ import (
 	"errors"
 	"eth_discover/interfaces"
 	"eth_discover/rlpx"
+	"eth_discover/session"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 	"github.com/rs/zerolog/log"
@@ -86,4 +88,33 @@ func (tn *TransportNode) TestBlock() {
 			tn.SendTCP(session, getBlockFrame)
 		}
 	}
+}
+
+func (tn *TransportNode) SendPing() {
+	sessions := tn.sessionManager.GetAllSessions()
+	for _, session := range sessions {
+		if session.IsBonded() {
+			// can start requesting blocks
+			ping, err := rlpx.CreateFramePing(session)
+			if err != nil {
+				log.Err(err).Str("component", "rlpx").Msg("error creating framePing frame")
+				return
+			}
+
+			tn.SendTCP(session, ping)
+		}
+	}
+}
+func (tn *TransportNode) Disconnect(session *session.Session, reason uint64) {
+	// Send disconnect then close connection
+	disconnect, err := rlpx.CreateFrameDisconnect(session, reason)
+	if err != nil {
+		log.Err(err).Str("component", "eth").Msg("error creating disconnect message")
+		return
+	}
+	tn.SendTCP(session, disconnect)
+	// sleep 2 seconds, as per protocol request
+	time.Sleep(2 * time.Second)
+
+	tn.tcp.Close(session)
 }

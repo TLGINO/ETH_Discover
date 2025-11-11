@@ -1,13 +1,13 @@
 package transport
 
 import (
+	"eth_discover/interfaces"
 	"eth_discover/rlpx"
 	"eth_discover/session"
 	"fmt"
 	"io"
 	"net"
 	"strconv"
-	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -16,11 +16,12 @@ type TCP struct {
 	listener       net.Listener
 	port           uint16
 	sessionManager *session.SessionManager
-	registry       *Registry // <- dependency injection
+	registry       *Registry      // <- dependency injection
+	tn             *TransportNode // <- dependency injection
 
 }
 
-func (t *TCP) Init(port uint16, registry *Registry, sessionManager *session.SessionManager) error {
+func (t *TCP) Init(port uint16, registry *Registry, sessionManager *session.SessionManager, tn *TransportNode) error {
 	t.port = port
 	addr := fmt.Sprintf(":%d", t.port)
 
@@ -31,6 +32,7 @@ func (t *TCP) Init(port uint16, registry *Registry, sessionManager *session.Sess
 	t.listener = listener
 	t.sessionManager = sessionManager
 	t.registry = registry
+	t.tn = tn
 
 	go t.handleConnections()
 	return nil
@@ -60,36 +62,29 @@ func (t *TCP) handleConnection(conn net.Conn) {
 		conn.Close()
 	}()
 
+	// if new session, add it
+	session, found := t.sessionManager.GetSession(ip)
+	if !found {
+		session = t.sessionManager.AddSession(net.ParseIP(ip), uint16(conn.RemoteAddr().(*net.TCPAddr).Port))
+	}
+	session.AddConn(conn)
 	for {
-		// if new session, add it
-		session, found := t.sessionManager.GetSession(ip)
-		if !found {
-			session = t.sessionManager.AddSession(net.ParseIP(ip), uint16(conn.RemoteAddr().(*net.TCPAddr).Port))
-		}
-		session.AddConn(conn)
-
-		// read from connection
-		// err := conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
-		// if err != nil {
-		// 	log.Error().Err(err).Msg("error setting read deadline")
-		// 	return
-		// }
 
 		// deserialize message
 		packet, pType, err := rlpx.DeserializePacket(conn, session, found)
 		if err != nil {
 			if err == io.EOF {
-				log.Warn().Msg("connection closed by remote")
+				log.Warn().Msgf("connection closed by remote %v", ip)
 				return
 			}
 
 			// Handle specific network errors like "use of closed network connection"
 			if opErr, ok := err.(*net.OpError); ok && opErr.Err.Error() == "use of closed network connection" {
-				log.Warn().Msg("connection closed: use of closed network connection")
+				log.Warn().Msgf("connection closed: use of closed network connection %v", ip)
 				return
 			}
 
-			log.Error().Err(err).Msg("error received tcp data")
+			log.Error().Err(err).Msgf("error received tcp data %v", ip)
 			// Not too sure whether to disconnect or not here
 			// t.sessionManager.RemoveSession(ip)
 			// return
@@ -106,17 +101,11 @@ func (t *TCP) Send(session *session.Session, data []byte) {
 	conn, found := session.GetConn()
 
 	if !found {
-		// create address ipv4 / ipv6
 		toIP, toPort := session.To()
-		var to string
-		if toIP.To4() != nil {
-			to = toIP.String() + ":" + strconv.Itoa(int(toPort))
-		} else {
-			to = "[" + toIP.String() + "]:" + strconv.Itoa(int(toPort))
-		}
+		to := net.JoinHostPort(toIP.String(), strconv.Itoa(int(toPort)))
 
 		// open connection
-		newConn, err := net.DialTimeout("tcp", to, 1*time.Second)
+		newConn, err := net.Dial("tcp", to)
 		if err != nil {
 			log.Error().Err(err).Msgf("failed to connect to server")
 			t.Close(session)
@@ -162,4 +151,15 @@ func (t *TCP) Close(session *session.Session) {
 		to = "[" + toIP.String() + "]:" + strconv.Itoa(int(toPort))
 	}
 	t.sessionManager.RemoveSession(to)
+
+	// find enode to reset
+	_, nodeID := session.GetNodeID()
+	allENodeTuples := t.tn.node.GetAllENodes()
+	for _, enode := range allENodeTuples {
+		if enode.Enode.ID == nodeID {
+			t.tn.node.UpdateENode(&enode.Enode, interfaces.NotBondedENode)
+			return
+		}
+	}
+
 }
