@@ -32,6 +32,7 @@ func DeserializePacket(conn io.Reader, session *session.Session, found bool) (Pa
 }
 func handleAuthMessage(conn io.Reader, session *session.Session) (Packet, error) {
 	session.Rbuf.Reset()
+	session.Rbuf.Grow(512)
 
 	// Frame Header
 	prefix, err := session.Rbuf.Read(conn, 2)
@@ -117,8 +118,8 @@ func handleAuthMessage(conn io.Reader, session *session.Session) (Packet, error)
 }
 
 func handleAuthAck(conn io.Reader, session *session.Session) (Packet, error) {
-	// prefix := data[0:2]
 	session.Rbuf.Reset()
+	session.Rbuf.Grow(512)
 
 	prefix, err := session.Rbuf.Read(conn, 2)
 	if err != nil {

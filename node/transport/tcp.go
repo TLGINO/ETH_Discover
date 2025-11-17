@@ -56,16 +56,18 @@ func (t *TCP) handleConnections() {
 
 func (t *TCP) handleConnection(conn net.Conn) {
 	remoteAddr := conn.RemoteAddr().String()
-	ip, _, _ := net.SplitHostPort(remoteAddr)
+	ip, portStr, _ := net.SplitHostPort(remoteAddr)
+	session_id := ip + ":" + portStr
 	defer func() {
-		t.sessionManager.RemoveSession(ip)
+		t.sessionManager.RemoveSession(session_id)
 		conn.Close()
 	}()
 
 	// if new session, add it
-	session, found := t.sessionManager.GetSession(ip)
+	session, found := t.sessionManager.GetSession(session_id)
 	if !found {
-		session = t.sessionManager.AddSession(net.ParseIP(ip), uint16(conn.RemoteAddr().(*net.TCPAddr).Port))
+		portInt, _ := strconv.Atoi(portStr)
+		session = t.sessionManager.AddSession(session_id, net.ParseIP(ip), uint16(portInt))
 	}
 	session.AddConn(conn)
 	for {
@@ -143,14 +145,8 @@ func (t *TCP) Close(session *session.Session) {
 
 	// remove from session manager
 	// do not re-use conn object here -> potentially nil
-	toIP, toPort := session.To()
-	var to string
-	if toIP.To4() != nil {
-		to = toIP.String() + ":" + strconv.Itoa(int(toPort))
-	} else {
-		to = "[" + toIP.String() + "]:" + strconv.Itoa(int(toPort))
-	}
-	t.sessionManager.RemoveSession(to)
+	session_id := session.GetID()
+	t.sessionManager.RemoveSession(session_id)
 
 	// find enode to reset
 	_, nodeID := session.GetNodeID()

@@ -142,8 +142,9 @@ type handShakeState struct {
 }
 
 type Session struct {
-	isActive       bool // Whether handshake phase is over or not
-	isBondedActive byte // Whether have bonded (post status)
+	SessionID      string // Field to hold the canonical ip:port key
+	isActive       bool   // Whether handshake phase is over or not
+	isBondedActive byte   // Whether have bonded (post status)
 	EgressMAC      HashMAC
 	IngressMAC     HashMAC
 
@@ -154,6 +155,11 @@ type Session struct {
 	Rbuf readBuffer
 
 	handShakeState *handShakeState
+}
+
+// ----
+func (s *Session) GetID() string {
+	return s.SessionID
 }
 
 // ----
@@ -260,21 +266,22 @@ func CreateSessionManager() *SessionManager {
 	return &sm
 }
 
-func (sm *SessionManager) GetSession(ip string) (*Session, bool) {
+func (sm *SessionManager) GetSession(sessionID string) (*Session, bool) {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
-	session, ok := sm.sessions[ip]
+	session, ok := sm.sessions[sessionID]
 	if !ok {
 		return nil, false
 	}
 	return session, true
 }
 
-func (sm *SessionManager) AddSession(ip net.IP, tcp_port uint16) *Session {
+func (sm *SessionManager) AddSession(sessionID string, ip net.IP, tcp_port uint16) *Session {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
 	session := &Session{
-		peer: &peer{IP: ip, TCP: tcp_port, conn: nil, ClientID: "", NodeID: [64]byte{}},
+		SessionID: sessionID, // Store the ID
+		peer:      &peer{IP: ip, TCP: tcp_port, conn: nil, ClientID: "", NodeID: [64]byte{}},
 		handShakeState: &handShakeState{
 			isInitiator:              false,
 			nonces:                   &peerNonces{},
@@ -283,14 +290,14 @@ func (sm *SessionManager) AddSession(ip net.IP, tcp_port uint16) *Session {
 			remoteEphemeralPublicKey: nil,
 		},
 	}
-	sm.sessions[ip.String()] = session
+	sm.sessions[sessionID] = session
 	return session
 }
 
-func (sm *SessionManager) RemoveSession(ip string) {
+func (sm *SessionManager) RemoveSession(sessionID string) {
 	sm.lock.Lock()
 	defer sm.lock.Unlock()
-	delete(sm.sessions, ip)
+	delete(sm.sessions, sessionID)
 }
 
 func (sm *SessionManager) GetAllSessions() []*Session {

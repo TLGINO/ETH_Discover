@@ -362,6 +362,7 @@ func CreateStatusMessage(session *session.Session) ([]byte, error) {
 	// [90m6:40PM[0m [32mINF[0m [1mreceived status frame Version: 68, NetworkID: 1, TotalDifficulty: 0, BlockHash: 768e11ce2564baa87d919cc7b1926ddce4122fb29ed818245063858f0c7365ac, Genesis: d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3, ForkID: {[195 118 207 139] 0}[0m [36mcomponent=[0meth
 	// genesis, err := HexToBytes("a9c28ce2141b56c474f1dc504bee9b01eb1bd7d1a507580d5519d4437a97de1b") // polygon
 	genesis, err := HexToBytes("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3") // mainnet
+	// genesis, err := HexToBytes("25a5cc106eea7138acab33231d7160d69cb777ee0c2c553fcddf5138993e6dd9") // sepolia
 	if err != nil {
 		return nil, fmt.Errorf("error creating hex bytes block: %v", err)
 	}
@@ -396,12 +397,13 @@ func CreateStatusMessage(session *session.Session) ([]byte, error) {
 	// td, _ := new(big.Int).SetString("58750003716598352816469", 10)
 	s := Status{
 		Version:         68,
-		NetworkID:       1,
+		NetworkID:       G.CONFIG.NetworkID,
 		TotalDifficulty: new(big.Int),
 		BlockHash:       [shaLen]byte(genesis),
 		Genesis:         [shaLen]byte(genesis),
 		ForkID: ForkID{
-			Hash: [4]byte{0xc3, 0x76, 0xcf, 0x8b},
+			Hash: [4]byte{0xc3, 0x76, 0xcf, 0x8b}, // mainnet
+			// Hash: [4]byte{0xed, 0x88, 0xb5, 0xfd}, // sepolia
 			Next: 0,
 		},
 	}

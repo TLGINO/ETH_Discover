@@ -51,6 +51,13 @@ func (dn *DiscoveryNode) SetNode(n interfaces.NodeInterface) {
 	e3 := interfaces.CreateEnode("enode://2b252ab6a1d0f971d9722cb839a42cb81db019ba44c08754628ab4a823487071b5695317c8ccd085219c3a03af063495b2f1da8d18218da2d6a82981b45e6ffc@65.108.70.101:30303") // bootnode-hetzner-hel
 	e4 := interfaces.CreateEnode("enode://4aeb4ab6c14b23e2c4cfdce879c04b0748a20d8e9b59e25ded2a08143e265c6c25936e74cbc8e641e3312ca288673d91f2f93f8e277de3cfa444ecdaaf982052@157.90.35.166:30303") // bootnode-hetzner-fsn
 
+	// sepolia
+	// s1 := interfaces.CreateEnode("enode://4e5e92199ee224a01932a377160aa432f31d0b351f84ab413a8e0a42f4f36476f8fb1cbe914af0d9aef0d51665c214cf653c651c4bbd9d5550a934f241f1682b@138.197.51.181:30303") // sepolia-bootnode-1-nyc3
+	// s2 := interfaces.CreateEnode("enode://143e11fb766781d22d92a2e33f8f104cddae4411a122295ed1fdb6638de96a6ce65f5b7c964ba3763bba27961738fef7d3ecc739268f3e5e771fb4c87b6234ba@146.190.1.103:30303")  // sepolia-bootnode-1-sfo3
+	// s3 := interfaces.CreateEnode("enode://8b61dc2d06c3f96fddcbebb0efb29d60d3598650275dc469c22229d3e5620369b0d3dedafd929835fe7f489618f19f456fe7c0df572bf2d914a9f4e006f783a9@170.64.250.88:30303")  // sepolia-bootnode-1-syd1
+	// s4 := interfaces.CreateEnode("enode://10d62eff032205fcef19497f35ca8477bea0eadfff6d769a147e895d8b2b8f8ae6341630c645c30f5df6e67547c03494ced3d9c5764e8622a26587b083b028e8@139.59.49.206:30303")  // sepolia-bootnode-1-blr1
+	// s5 := interfaces.CreateEnode("enode://9e9492e2e8836114cc75f5b929784f4f46c324ad01daf87d956f98b3b6c5fcba95524d6e5cf9861dc96a2c8a171ea7105bb554a197455058de185fa870970c7c@138.68.123.152:30303") // sepolia-bootnode-1-ams3
+
 	// polygon
 	// p1 := interfaces.CreateEnode("enode://07bc4cf87ff8f4e7dc51280991809940f26e846c944609ae4726309be73742a830040cd783989f6941e1b41c02405834bc6365059403a59ca9255ac695156235@34.89.75.187:30303")
 	// p2 := interfaces.CreateEnode("enode://f81234949f791624d1196eb3a780490f5a8199b476c3522335e6d76ca96aa9155ad21c308864b1e22ab9a53136b486520b33515310f8f18485ab471826ae9ded@34.142.43.249:30303")
@@ -61,10 +68,7 @@ func (dn *DiscoveryNode) SetNode(n interfaces.NodeInterface) {
 	// p7 := interfaces.CreateEnode("enode://fc7624241515f9d5e599a396362c29de92b13a048ad361c90dd72286aa4cca835ba65e140a46ace70cc4dcb18472a476963750b3b69d958c5f546d48675880a8@34.147.169.102:30303")
 	// p8 := interfaces.CreateEnode("enode://a36848f536ff6c431e9e3ccbb2f859a5c71f6e5e2d282d8dc6e0199618256444c5032f4cbf7e8579da9fa4d30251b7a55a2d6d3711516112e8dced057c8596c6@34.89.55.74:30303")
 
-	// my own home node
-	// home_node := interfaces.CreateEnode("enode://48d7f65e900674ae6f18eb6a43c268bc368af8162556a4206bc17bf237c1ee2d971f31a32c6311f16cc5451bf89391e3f4be42c43557b44da9bd77947258ae91@80.11.78.178:30303")
-	// local_test_node := interfaces.CreateEnode("enode://c7ab3a207a1b8041ee6c35efeb0c9f7985ed9286ba906be3ff75eb163572185a85343c0ec1e33565190be57ddfc5e5eef674532e7483707302c9fd77602e55d9@127.0.0.1:33333")
-
+	// mainnnet
 	dn.AddENode(&e1)
 	dn.UpdateENode(&e1, interfaces.NotBondedENode)
 	dn.AddENode(&e2)
@@ -74,11 +78,19 @@ func (dn *DiscoveryNode) SetNode(n interfaces.NodeInterface) {
 	dn.AddENode(&e4)
 	dn.UpdateENode(&e4, interfaces.NotBondedENode)
 
-	// dn.AddENode(&home_node)
-	// dn.UpdateENode(&home_node, interfaces.NotBondedENode)
-	// dn.AddENode(&local_test_node)
-	// dn.UpdateENode(&local_test_node, interfaces.NotBondedENode)
+	// sepolia
+	// dn.AddENode(&s1)
+	// dn.UpdateENode(&s1, interfaces.NotBondedENode)
+	// dn.AddENode(&s2)
+	// dn.UpdateENode(&s2, interfaces.NotBondedENode)
+	// dn.AddENode(&s3)
+	// dn.UpdateENode(&s3, interfaces.NotBondedENode)
+	// dn.AddENode(&s4)
+	// dn.UpdateENode(&s4, interfaces.NotBondedENode)
+	// dn.AddENode(&s5)
+	// dn.UpdateENode(&s5, interfaces.NotBondedENode)
 
+	// polygon
 	// dn.AddENode(&p1)
 	// dn.UpdateENode(&p1, interfaces.NotBondedENode)
 	// dn.AddENode(&p2)

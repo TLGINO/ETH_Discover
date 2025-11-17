@@ -6,6 +6,7 @@ import (
 	"eth_discover/interfaces"
 	"eth_discover/rlpx"
 	"eth_discover/session"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -52,7 +53,8 @@ func (tn *TransportNode) StartHandShake() {
 	}()
 
 	for _, eNode := range filteredENodes {
-		session := tn.sessionManager.AddSession(eNode.IP, eNode.TCP)
+		sessionID := fmt.Sprintf("%s:%d", eNode.IP.String(), eNode.TCP)
+		session := tn.sessionManager.AddSession(sessionID, eNode.IP, eNode.TCP)
 		session.SetInitiator() // Set ourselves as the initiator
 
 		recipientPK, err := rlpx.PubkeyToECDSA(eNode.ID)

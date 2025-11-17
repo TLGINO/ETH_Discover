@@ -118,7 +118,9 @@ func SetupConfig(path *string) (*interfaces.Config, *ecdsa.PrivateKey, error) {
 			UdpPort:   30303,
 			TcpPort:   30303,
 			MaxPeers:  uint16(^uint16(0)), // max uint16
-			NetworkID: 1,
+			NetworkID: 1,                  // mainnet
+			// NetworkID: 11155111, // sepolia
+
 		}
 
 		G.CreatePK()
