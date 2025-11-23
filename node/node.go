@@ -112,6 +112,14 @@ func initDB() (*sql.DB, error) {
 		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
 		tx TEXT NOT NULL
 	);
+	CREATE TABLE IF NOT EXISTS TRANSACTIONS_RELAYED (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		client_ip TEXT NOT NULL,
+		client_id TEXT NOT NULL,
+		node_id TEXT NOT NULL,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+		tx TEXT NOT NULL
+	);
 	CREATE TABLE IF NOT EXISTS NODE_STATUS (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		client_ip TEXT NOT NULL,
@@ -145,7 +153,7 @@ func initDB() (*sql.DB, error) {
 	return db, nil
 }
 
-func (n *Node) InsertTX(session *session.Session, data interface{}) {
+func (n *Node) InsertTX(session *session.Session, data interface{}, isRelay bool) {
 	tx, _ := data.(*types.Transaction)
 
 	// Parse transaction
@@ -163,9 +171,18 @@ func (n *Node) InsertTX(session *session.Session, data interface{}) {
 	nodeID := hex.EncodeToString(nodeIDRaw[:])
 
 	// Write to db
-	sql := `
-	INSERT INTO TRANSACTIONS (client_ip, client_id, node_id, tx)
-	VALUES (?, ?, ?, ?)`
+	var sql string
+	if isRelay {
+		sql = `
+		INSERT INTO TRANSACTIONS (client_ip, client_id, node_id, tx)
+		VALUES (?, ?, ?, ?)`
+
+	} else {
+		sql = `
+		INSERT INTO TRANSACTIONS_RELAYED (client_ip, client_id, node_id, tx)
+		VALUES (?, ?, ?, ?)`
+
+	}
 	_, err = n.db.Exec(sql, ip, clientID, nodeID, tx_data)
 	if err != nil {
 		log.Err(err).Msg("failed to insert transaction into database")

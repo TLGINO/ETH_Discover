@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -126,7 +127,7 @@ func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
 
 		transactions := f.(*rlpx.Transactions)
 		for _, tx := range transactions.Transactions {
-			tn.node.InsertTX(session, tx)
+			tn.node.InsertTX(session, tx, false)
 		}
 
 	case *rlpx.GetBlockHeaders:
@@ -162,11 +163,31 @@ func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
 			}
 			tn.SendTCP(session, getPooledTransactions)
 			tn.node.GetTracker().Add(request_id, 60*time.Second)
+
 		}
 
 	case *rlpx.GetPooledTransactions:
 		log.Info().Str("component", "eth").Msgf("received getPooledTransactions frame %v", frame.String())
-		// panic("4")
+
+		// collect requested transactions
+		request := frame
+		txs := make([]*types.Transaction, 0, len(request.Hashes))
+		for _, h := range request.Hashes {
+			tx := tn.GetTransaction(h)
+			if tx != nil {
+				txs = append(txs, tx)
+			}
+		}
+
+		// create and send pooledTransactions response
+		pooledMsg, err := rlpx.CreatePooledTransactions(session, request.RequestID, txs)
+		if err != nil {
+			log.Err(err).Str("component", "eth").Msg("error creating pooledTransactions message")
+			break
+		}
+		println("HERE SENDING TRANSACTION")
+		tn.SendTCP(session, pooledMsg)
+
 	case *rlpx.PooledTransactions:
 		log.Info().Str("component", "eth").Msgf("received pooledTransactions frame %v", frame.String())
 		pooledTransactions := f.(*rlpx.PooledTransactions)
@@ -175,7 +196,53 @@ func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
 		if found {
 			println("Found my transactions!")
 			for _, tx := range pooledTransactions.Transactions {
-				tn.node.InsertTX(session, tx)
+				tn.node.InsertTX(session, tx, false)
+				tn.AddTxHashSender(tx.Hash(), session.GetID(), tx)
+
+				sessionIDs := tn.GetTxHashSenders(tx.Hash())
+				seen := make(map[string]struct{})
+				for _, id := range sessionIDs {
+					seen[id] = struct{}{}
+				}
+
+				// iterate all known sessions and send the announcement to those not in seen
+				for _, peer := range tn.GetSessionManager().GetAllSessions() {
+					if !peer.IsBonded() {
+						continue
+					}
+					if peer == nil {
+						continue
+					}
+					pid := peer.GetID()
+					// don't send back to original sender or to peers that already sent us this tx
+					if pid == session.GetID() {
+						continue
+					}
+					if _, ok := seen[pid]; ok {
+						continue
+					}
+
+					// prepare single-element slices for the NewPooledTransactionHashes message
+					types := []byte{tx.Type()}
+					sizes := []uint32{uint32(tx.Size())}
+					h := tx.Hash()
+					var hArr [32]byte
+					copy(hArr[:], h[:])
+					hashes := [][32]byte{hArr}
+					log.Info().Str("component", "eth").Msgf("pid=%s types=%v sizes=%v hashes=%v", pid, types, sizes, hashes)
+					msg, err := rlpx.CreateNewPooledTransactionHashes(peer, types, sizes, hashes)
+					if err != nil {
+						log.Err(err).Str("component", "eth").Msg("error creating NewPooledTransactionHashes")
+						continue
+					}
+
+					tn.SendTCP(peer, msg)
+					tn.node.InsertTX(peer, tx, true)
+					tn.AddTxHashSender(tx.Hash(), pid, tx)
+				}
+
+				// emit a "NewPooledTransactionHashes" message
+				// send to all peers who have not sent us this one
 			}
 		}
 	default:

@@ -1,6 +1,9 @@
 package transport
 
 import (
+	"sync"
+
+	"github.com/ethereum/go-ethereum/core/types"
 	_ "github.com/mattn/go-sqlite3"
 
 	"eth_discover/interfaces"
@@ -16,6 +19,12 @@ type TransportNode struct {
 	registry *Registry
 
 	sessionManager *session.SessionManager
+
+	// keep track of which peer sent us which TX hash
+	txHashSender map[[32]byte]map[string]struct{}
+	// save the mapping from TX hash to TX
+	txHashMap        map[[32]byte]*types.Transaction
+	txHashSenderLock sync.RWMutex
 }
 
 func Init() (*TransportNode, error) {
@@ -57,4 +66,57 @@ func (tn *TransportNode) Cleanup() {
 		log.Info().Msgf("disconnecting from: %v", ip)
 		tn.tcp.Close(session)
 	}
+}
+func (tn *TransportNode) AddTxHashSender(txHash [32]byte, sender string, tx *types.Transaction) {
+	tn.txHashSenderLock.Lock()
+	defer tn.txHashSenderLock.Unlock()
+
+	if tn.txHashSender == nil {
+		tn.txHashSender = make(map[[32]byte]map[string]struct{})
+	}
+	if tn.txHashMap == nil {
+		tn.txHashMap = make(map[[32]byte]*types.Transaction)
+	}
+
+	senders, ok := tn.txHashSender[txHash]
+	if !ok {
+		// first time we see this txHash: create sender set and store the tx (only once)
+		senders = make(map[string]struct{})
+		tn.txHashSender[txHash] = senders
+		if tx != nil {
+			tn.txHashMap[txHash] = tx
+		}
+	}
+	senders[sender] = struct{}{}
+}
+
+// GetTransaction returns the stored Transaction for the given hash, or nil if unknown.
+func (tn *TransportNode) GetTransaction(txHash [32]byte) *types.Transaction {
+	tn.txHashSenderLock.RLock()
+	defer tn.txHashSenderLock.RUnlock()
+
+	if tn.txHashMap == nil {
+		return nil
+	}
+	return tn.txHashMap[txHash]
+}
+
+func (tn *TransportNode) GetTxHashSenders(txHash [32]byte) []string {
+	tn.txHashSenderLock.RLock()
+	defer tn.txHashSenderLock.RUnlock()
+
+	if tn.txHashSender == nil {
+		return nil
+	}
+
+	sendersMap, ok := tn.txHashSender[txHash]
+	if !ok {
+		return nil
+	}
+
+	result := make([]string, 0, len(sendersMap))
+	for s := range sendersMap {
+		result = append(result, s)
+	}
+	return result
 }

@@ -436,7 +436,21 @@ func CreateFrameGetBlockBodies(session *session.Session) ([]byte, error) {
 
 	return createFrame(session, gbb)
 }
-
+func CreateNewPooledTransactionHashes(session *session.Session, types []byte, sizes []uint32, hashes [][shaLen]byte) ([]byte, error) {
+	n := NewPooledTransactionHashes{
+		Types:  types,
+		Sizes:  sizes,
+		Hashes: hashes,
+	}
+	return createFrame(session, n)
+}
+func CreatePooledTransactions(session *session.Session, request_id uint64, txs []*types.Transaction) ([]byte, error) {
+	pt := PooledTransactions{
+		RequestID:    request_id,
+		Transactions: txs,
+	}
+	return createFrame(session, pt)
+}
 func CreateGetPooledTransactions(session *session.Session, request_id uint64, hashes [][shaLen]byte) ([]byte, error) {
 	gpt := &GetPooledTransactions{
 		RequestID: request_id,
