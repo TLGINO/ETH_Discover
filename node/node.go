@@ -109,7 +109,7 @@ func initDB() (*sql.DB, error) {
 		client_ip TEXT NOT NULL,
 		client_id TEXT NOT NULL,
 		node_id TEXT NOT NULL,
-		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+		timestamp DATETIME DEFAULT (datetime('now', 'utc')),
 		tx TEXT NOT NULL
 	);
 	CREATE TABLE IF NOT EXISTS TRANSACTIONS_RELAYED (
@@ -117,7 +117,7 @@ func initDB() (*sql.DB, error) {
 		client_ip TEXT NOT NULL,
 		client_id TEXT NOT NULL,
 		node_id TEXT NOT NULL,
-		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+		timestamp DATETIME DEFAULT (datetime('now', 'utc')),
 		tx TEXT NOT NULL
 	);
 	CREATE TABLE IF NOT EXISTS NODE_STATUS (
@@ -128,22 +128,22 @@ func initDB() (*sql.DB, error) {
 		s_version TEXT NOT NULL,
 		s_network_id TEXT NOT NULL,
 		s_td TEXT NOT NULL,
-		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-		);
+		timestamp DATETIME DEFAULT (datetime('now', 'utc'))
+	);
 	CREATE TABLE IF NOT EXISTS NODE_DISCONNECT (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		client_ip TEXT NOT NULL,
 		client_id TEXT NOT NULL,
 		node_id TEXT NOT NULL,
 		disconnect_reason TEXT NOT NULL,
-		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-		);
+		timestamp DATETIME DEFAULT (datetime('now', 'utc'))
+	);
 	CREATE TABLE IF NOT EXISTS NODE_DISCV4 (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		node_id TEXT NOT NULL,
-		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-		);
-		`
+		timestamp DATETIME DEFAULT (datetime('now', 'utc'))
+	);
+	`
 
 	_, err = db.Exec(sql)
 	if err != nil {
@@ -172,15 +172,15 @@ func (n *Node) InsertTX(session *session.Session, data interface{}, isRelay bool
 
 	// Write to db
 	var sql string
-	if isRelay {
+	if !isRelay {
 		sql = `
-		INSERT INTO TRANSACTIONS (client_ip, client_id, node_id, tx)
-		VALUES (?, ?, ?, ?)`
+		INSERT INTO TRANSACTIONS (client_ip, client_id, node_id, tx, timestamp)
+		VALUES (?, ?, ?, ?, datetime('now', 'utc'))`
 
 	} else {
 		sql = `
-		INSERT INTO TRANSACTIONS_RELAYED (client_ip, client_id, node_id, tx)
-		VALUES (?, ?, ?, ?)`
+		INSERT INTO TRANSACTIONS_RELAYED (client_ip, client_id, node_id, tx, timestamp)
+		VALUES (?, ?, ?, ?, datetime('now', 'utc'))`
 
 	}
 	_, err = n.db.Exec(sql, ip, clientID, nodeID, tx_data)
@@ -189,6 +189,7 @@ func (n *Node) InsertTX(session *session.Session, data interface{}, isRelay bool
 		return
 	}
 }
+
 func (n *Node) InsertNodeStatus(session *session.Session, data interface{}) {
 	status, _ := data.(*rlpx.Status)
 	// Get node data
@@ -198,17 +199,16 @@ func (n *Node) InsertNodeStatus(session *session.Session, data interface{}) {
 	nodeID := hex.EncodeToString(nodeIDRaw[:])
 
 	// Write to db
-
 	sql := `
-	INSERT INTO NODE_STATUS (client_ip, client_id, node_id, s_version, s_network_id, s_td)
-	VALUES (?, ?, ?, ?, ?, ?)`
+	INSERT INTO NODE_STATUS (client_ip, client_id, node_id, s_version, s_network_id, s_td, timestamp)
+	VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'utc'))`
 	_, err := n.db.Exec(sql, ip, clientID, nodeID, status.Version, status.NetworkID, status.TotalDifficulty.String())
 	if err != nil {
 		log.Err(err).Msg("failed to insert transaction into database")
 		return
 	}
-
 }
+
 func (n *Node) InsertNodeDisconnect(session *session.Session, data interface{}) {
 	disconnect, _ := data.(*rlpx.FrameDisconnect)
 
@@ -219,31 +219,27 @@ func (n *Node) InsertNodeDisconnect(session *session.Session, data interface{}) 
 	nodeID := hex.EncodeToString(nodeIDRaw[:])
 
 	// Write to db
-
 	sql := `
-	INSERT INTO NODE_DISCONNECT (client_ip, client_id, node_id, disconnect_reason)
-	VALUES (?, ?, ?, ?)`
+	INSERT INTO NODE_DISCONNECT (client_ip, client_id, node_id, disconnect_reason, timestamp)
+	VALUES (?, ?, ?, ?, datetime('now', 'utc'))`
 	_, err := n.db.Exec(sql, ip, clientID, nodeID, disconnect.Reason)
 	if err != nil {
 		log.Err(err).Msg("failed to insert disc reason into database")
 		return
 	}
-
 }
-func (n *Node) InsertNodeDiscv4(id [64]byte) {
 
+func (n *Node) InsertNodeDiscv4(id [64]byte) {
 	// Get node data
 	nodeID := hex.EncodeToString(id[:])
 
 	// Write to db
-
 	sql := `
-	INSERT INTO NODE_DISCV4 (node_id)
-	VALUES (?)`
+	INSERT INTO NODE_DISCV4 (node_id, timestamp)
+	VALUES (?, datetime('now', 'utc'))`
 	_, err := n.db.Exec(sql, nodeID)
 	if err != nil {
 		log.Err(err).Msg("failed to insert nodeID into database")
 		return
 	}
-
 }

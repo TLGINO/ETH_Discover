@@ -1,1 +1,4 @@
 tx_data.db
+*.csv
+*.parquet
+stats/.tx_cache.pkl
