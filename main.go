@@ -72,7 +72,7 @@ func main() {
 
 	// rlpx | Connect to new nodes
 	go func() {
-		time.Sleep(60 * time.Second)
+		time.Sleep(3600 * time.Second)
 
 		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
