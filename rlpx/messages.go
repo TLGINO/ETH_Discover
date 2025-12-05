@@ -1,6 +1,7 @@
 package rlpx
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/binary"
@@ -14,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/ecies"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/golang/snappy"
 )
@@ -358,53 +360,35 @@ func CreateFramePong(session *session.Session) ([]byte, error) {
 }
 
 func CreateStatusMessage(session *session.Session) ([]byte, error) {
-	// [90m6:43PM[0m [32mINF[0m [1mreceived status frame Version: 68, NetworkID: 1, TotalDifficulty: 58750003716598352816469, BlockHash: d36558a8e27038c9b69ead9755c95bbd89400f5c5ec9afa82cbf27aa4dbef61b, Genesis: d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3, ForkID: {[195 118 207 139] 0}[0m [36mcomponent=[0meth
-	// [90m6:40PM[0m [32mINF[0m [1mreceived status frame Version: 68, NetworkID: 1, TotalDifficulty: 0, BlockHash: 768e11ce2564baa87d919cc7b1926ddce4122fb29ed818245063858f0c7365ac, Genesis: d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3, ForkID: {[195 118 207 139] 0}[0m [36mcomponent=[0meth
-	// genesis, err := HexToBytes("a9c28ce2141b56c474f1dc504bee9b01eb1bd7d1a507580d5519d4437a97de1b") // polygon
-	genesis, err := HexToBytes("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3") // mainnet
-	// genesis, err := HexToBytes("25a5cc106eea7138acab33231d7160d69cb777ee0c2c553fcddf5138993e6dd9") // sepolia
+	genesis, err := HexToBytes("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
 	if err != nil {
 		return nil, fmt.Errorf("error creating hex bytes block: %v", err)
 	}
-	// Get the latest block hash from an API
-	// Get the latest block hash from an API
-	// client, err := ethclient.Dial("https://eth.llamarpc.com")
-	// if err != nil {
-	// 	return nil, fmt.Errorf("error connecting to RPC: %v", err)
-	// }
-	// defer client.Close()
 
-	// header, err := client.HeaderByNumber(nil, nil)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("error fetching latest block: %v", err)
-	// }
+	// Connect to Alchemy
+	// Yes I know, this is an API key
+	// I dont care
+	client, err := ethclient.Dial("https://eth-mainnet.g.alchemy.com/v2/hNDILvs5J8QZTv8t9KJx_LK_AE7hgFR6")
+	if err != nil {
+		return nil, fmt.Errorf("error connecting to Alchemy: %v", err)
+	}
+	defer client.Close()
 
-	// curr := header.Hash().Bytes()
-
-	// This is perfect for sync
-	// s := Status{
-	// 	Version:         68,
-	// 	NetworkID:       1,
-	// 	TotalDifficulty: big.NewInt(0), // not used?
-	// 	BlockHash:       [shaLen]byte(genesis),
-	// 	Genesis:         [shaLen]byte(genesis),
-	// 	ForkID: ForkID{
-	// 		Hash: [4]byte{0xc3, 0x76, 0xcf, 0x8b},
-	// 		Next: 0,
-	// 	},
-	// }
-	// current
-	// td, _ := new(big.Int).SetString("58750003716598352816469", 10)
+	// Get latest header
+	header, err := client.HeaderByNumber(context.Background(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching latest block: %v", err)
+	}
+	fmt.Printf("HERE BLOCK HASH: %x\n", header.Hash().Bytes())
 	s := Status{
 		Version:         68,
-		NetworkID:       G.CONFIG.NetworkID,
-		TotalDifficulty: new(big.Int),
-		BlockHash:       [shaLen]byte(genesis),
+		NetworkID:       1,                                   // Mainnet
+		TotalDifficulty: new(big.Int),                        // TD is largely irrelevant post-merge for peering
+		BlockHash:       [shaLen]byte(header.Hash().Bytes()), // Dynamic Latest Hash
 		Genesis:         [shaLen]byte(genesis),
 		ForkID: ForkID{
-			Hash: [4]byte{0xc3, 0x76, 0xcf, 0x8b}, // mainnet
-			// Hash: [4]byte{0xed, 0x88, 0xb5, 0xfd}, // sepolia
-			Next: 0,
+			Hash: [4]byte{0x51, 0x67, 0xe2, 0xa6},
+			Next: 1765290071,
 		},
 	}
 
