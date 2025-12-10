@@ -185,7 +185,7 @@ func (tn *TransportNode) GetAndSendPendingTransactionFromAlchemy(ctx context.Con
 				sender := "alchemy"
 
 				// Log and call the user's function
-				fmt.Printf("Received pending transaction: %s\n", txHash.Hex())
+				// fmt.Printf("Received pending transaction: %s\n", txHash.Hex())
 				tn.AddTxHashSender(txHashArray, sender, tx)
 
 				// NOTE: The "do not do the sending part for now" instruction is followed.

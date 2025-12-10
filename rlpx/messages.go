@@ -4,11 +4,15 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
 	G "eth_discover/global"
 	"eth_discover/session"
 	"fmt"
 	"math/big"
 	mrand "math/rand"
+	"net/http"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -356,38 +360,60 @@ func CreateFramePing(session *session.Session) ([]byte, error) {
 func CreateFramePong(session *session.Session) ([]byte, error) {
 	return createFrame(session, FramePong{})
 }
-
 func CreateStatusMessage(session *session.Session) ([]byte, error) {
 	genesis, err := HexToBytes("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
 	if err != nil {
 		return nil, fmt.Errorf("error creating hex bytes block: %v", err)
 	}
 
-	// Connect to Alchemy
-	// Yes I know, this is an API key
-	// I dont care
-	// client, err := ethclient.Dial("https://eth-mainnet.g.alchemy.com/v2/hNDILvs5J8QZTv8t9KJx_LK_AE7hgFR6")
-	// if err != nil {
-	// 	return nil, fmt.Errorf("error connecting to Alchemy: %v", err)
-	// }
-	// defer client.Close()
+	// 2. "Curl" Alchemy for the Latest Block Hash
+	// We use a raw HTTP request to ensure we get exactly what the API returns.
+	payload := strings.NewReader(`{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest", false],"id":1}`)
+	req, err := http.NewRequest("POST", "https://eth-mainnet.g.alchemy.com/v2/hNDILvs5J8QZTv8t9KJx_LK_AE7hgFR6", payload)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("Content-Type", "application/json")
 
-	// // Get latest header
-	// header, err := client.HeaderByNumber(context.Background(), nil)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("error fetching latest block: %v", err)
-	// }
-	// fmt.Printf("HERE BLOCK HASH: %x\n", header.Hash().Bytes())
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching from alchemy: %v", err)
+	}
+	defer res.Body.Close()
+
+	// 3. Parse JSON Response
+	// We only care about the "hash" field in the result.
+	var rpcResponse struct {
+		Result struct {
+			Hash string `json:"hash"`
+		} `json:"result"`
+	}
+
+	if err := json.NewDecoder(res.Body).Decode(&rpcResponse); err != nil {
+		return nil, fmt.Errorf("error decoding json: %v", err)
+	}
+
+	// 4. Convert Hex String to [32]byte
+	// Strip "0x" prefix if present
+	blockHashHex := strings.TrimPrefix(rpcResponse.Result.Hash, "0x")
+	blockHashBytes, err := hex.DecodeString(blockHashHex)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding block hash hex: %v", err)
+	}
+
+	var currentBlockHash [32]byte
+	copy(currentBlockHash[:], blockHashBytes)
+	fmt.Printf("HERE BLOCK HASH: %x\n", currentBlockHash)
+
 	s := Status{
 		Version:         68,
-		NetworkID:       1,            // Mainnet
-		TotalDifficulty: new(big.Int), // TD is largely irrelevant post-merge for peering
-		// BlockHash:       [shaLen]byte(header.Hash().Bytes()), // Dynamic Latest Hash
-		BlockHash: [shaLen]byte(genesis),
-		Genesis:   [shaLen]byte(genesis),
+		NetworkID:       1,                 // Mainnet
+		TotalDifficulty: new(big.Int),      // TD is largely irrelevant post-merge for peering
+		BlockHash:       currentBlockHash,  // Use the copied array
+		Genesis:         [32]byte(genesis), // Ensure genesis is also cast correctly if needed
 		ForkID: ForkID{
-			Hash: [4]byte{0x51, 0x67, 0xe2, 0xa6},
-			Next: 1765290071,
+			Hash: [4]byte{0xcb, 0xa2, 0xa1, 0xc0},
+			Next: 1767747671,
 		},
 	}
 
