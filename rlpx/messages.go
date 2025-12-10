@@ -1,7 +1,6 @@
 package rlpx
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/binary"
@@ -15,7 +14,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/ecies"
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/golang/snappy"
 )
@@ -368,24 +366,25 @@ func CreateStatusMessage(session *session.Session) ([]byte, error) {
 	// Connect to Alchemy
 	// Yes I know, this is an API key
 	// I dont care
-	client, err := ethclient.Dial("https://eth-mainnet.g.alchemy.com/v2/hNDILvs5J8QZTv8t9KJx_LK_AE7hgFR6")
-	if err != nil {
-		return nil, fmt.Errorf("error connecting to Alchemy: %v", err)
-	}
-	defer client.Close()
+	// client, err := ethclient.Dial("https://eth-mainnet.g.alchemy.com/v2/hNDILvs5J8QZTv8t9KJx_LK_AE7hgFR6")
+	// if err != nil {
+	// 	return nil, fmt.Errorf("error connecting to Alchemy: %v", err)
+	// }
+	// defer client.Close()
 
-	// Get latest header
-	header, err := client.HeaderByNumber(context.Background(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("error fetching latest block: %v", err)
-	}
-	fmt.Printf("HERE BLOCK HASH: %x\n", header.Hash().Bytes())
+	// // Get latest header
+	// header, err := client.HeaderByNumber(context.Background(), nil)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("error fetching latest block: %v", err)
+	// }
+	// fmt.Printf("HERE BLOCK HASH: %x\n", header.Hash().Bytes())
 	s := Status{
 		Version:         68,
-		NetworkID:       1,                                   // Mainnet
-		TotalDifficulty: new(big.Int),                        // TD is largely irrelevant post-merge for peering
-		BlockHash:       [shaLen]byte(header.Hash().Bytes()), // Dynamic Latest Hash
-		Genesis:         [shaLen]byte(genesis),
+		NetworkID:       1,            // Mainnet
+		TotalDifficulty: new(big.Int), // TD is largely irrelevant post-merge for peering
+		// BlockHash:       [shaLen]byte(header.Hash().Bytes()), // Dynamic Latest Hash
+		BlockHash: [shaLen]byte(genesis),
+		Genesis:   [shaLen]byte(genesis),
 		ForkID: ForkID{
 			Hash: [4]byte{0x51, 0x67, 0xe2, 0xa6},
 			Next: 1765290071,

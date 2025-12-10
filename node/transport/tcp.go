@@ -8,8 +8,16 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/rs/zerolog/log"
+)
+
+// Define timeouts to prevent freezing
+const (
+	ReadDeadline  = 30 * time.Second
+	WriteDeadline = 10 * time.Second
+	DialTimeout   = 5 * time.Second
 )
 
 type TCP struct {
@@ -64,26 +72,37 @@ func (t *TCP) handleConnection(conn net.Conn) {
 	}()
 
 	// if new session, add it
-	session, found := t.sessionManager.GetSession(session_id)
+	sess, found := t.sessionManager.GetSession(session_id)
 	if !found {
 		portInt, _ := strconv.Atoi(portStr)
-		session = t.sessionManager.AddSession(session_id, net.ParseIP(ip), uint16(portInt))
+		sess = t.sessionManager.AddSession(session_id, net.ParseIP(ip), uint16(portInt))
 	}
-	session.AddConn(conn)
+	sess.AddConn(conn)
 	for {
+		// Set a ReadDeadline to ensure we don't block forever if the peer goes silent
+		if err := conn.SetReadDeadline(time.Now().Add(ReadDeadline)); err != nil {
+			log.Error().Err(err).Msgf("failed to set read deadline for %v", ip)
+			return
+		}
 
 		// deserialize message
-		packet, pType, err := rlpx.DeserializePacket(conn, session, found)
+		packet, pType, err := rlpx.DeserializePacket(conn, sess, found)
 		if err != nil {
 			if err == io.EOF {
 				log.Warn().Msgf("connection closed by remote %v", ip)
 				return
 			}
 
-			// Handle specific network errors like "use of closed network connection"
-			if opErr, ok := err.(*net.OpError); ok && opErr.Err.Error() == "use of closed network connection" {
-				log.Warn().Msgf("connection closed: use of closed network connection %v", ip)
-				return
+			// Handle specific network errors like timeouts or closed connections
+			if opErr, ok := err.(*net.OpError); ok {
+				if opErr.Timeout() {
+					log.Warn().Msgf("connection read timed out %v", ip)
+					return
+				}
+				if opErr.Err.Error() == "use of closed network connection" {
+					log.Warn().Msgf("connection closed: use of closed network connection %v", ip)
+					return
+				}
 			}
 
 			log.Error().Err(err).Msgf("error received tcp data %v", ip)
@@ -94,34 +113,42 @@ func (t *TCP) handleConnection(conn net.Conn) {
 		}
 
 		// exec callback
-		t.registry.ExecCallBack(packet, pType, session)
+		t.registry.ExecCallBack(packet, pType, sess)
 	}
 }
 
-func (t *TCP) Send(session *session.Session, data []byte) {
+func (t *TCP) Send(sess *session.Session, data []byte) {
 	// Check if we already have a connection to this address
-	conn, found := session.GetConn()
+	conn, found := sess.GetConn()
 
 	if !found {
-		toIP, toPort := session.To()
+		toIP, toPort := sess.To()
 		to := net.JoinHostPort(toIP.String(), strconv.Itoa(int(toPort)))
 
-		// open connection
-		newConn, err := net.Dial("tcp", to)
+		// open connection with a timeout
+		dialer := net.Dialer{Timeout: DialTimeout}
+		newConn, err := dialer.Dial("tcp", to)
 		if err != nil {
 			log.Error().Err(err).Msgf("failed to connect to server")
-			t.Close(session)
+			t.Close(sess)
 			return
 		}
 
 		// add conn to session
-		session.AddConn(newConn)
+		sess.AddConn(newConn)
 
 		// listen on connection
 		go t.handleConnection(newConn)
 
 		// always get the connection from session after adding
-		conn, _ = session.GetConn()
+		conn, _ = sess.GetConn()
+	}
+
+	// Set a WriteDeadline to prevent blocking if the peer isn't reading
+	if err := conn.SetWriteDeadline(time.Now().Add(WriteDeadline)); err != nil {
+		log.Error().Err(err).Msg("failed to set write deadline")
+		t.Close(sess)
+		return
 	}
 
 	// Send data using the connection
@@ -129,15 +156,15 @@ func (t *TCP) Send(session *session.Session, data []byte) {
 	if err != nil {
 		// Remove failed connection
 		log.Error().Err(err).Msg("error sending via tcp:")
-		t.Close(session)
+		t.Close(sess)
 		return
 	}
 }
 
-func (t *TCP) Close(session *session.Session) {
+func (t *TCP) Close(sess *session.Session) {
 	// Close the connection without sending disconnect
 	// To close and disconnect, see transport_node.go
-	conn, found := session.GetConn()
+	conn, found := sess.GetConn()
 
 	if found {
 		conn.Close()
@@ -145,11 +172,11 @@ func (t *TCP) Close(session *session.Session) {
 
 	// remove from session manager
 	// do not re-use conn object here -> potentially nil
-	session_id := session.GetID()
+	session_id := sess.GetID()
 	t.sessionManager.RemoveSession(session_id)
 
 	// find enode to reset
-	_, nodeID := session.GetNodeID()
+	_, nodeID := sess.GetNodeID()
 	allENodeTuples := t.tn.node.GetAllENodes()
 	for _, enode := range allENodeTuples {
 		if enode.Enode.ID == nodeID {
@@ -157,5 +184,4 @@ func (t *TCP) Close(session *session.Session) {
 			return
 		}
 	}
-
 }

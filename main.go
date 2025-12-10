@@ -51,6 +51,11 @@ func main() {
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 
+	go func() {
+		// some ugly code to get pending transactions from alchemy, in order to attempt to become a better node
+		transport_node.GetAndSendPendingTransactionFromAlchemy(ctx)
+	}()
+	// select {}
 	// discv4 | Find new nodes
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
@@ -72,7 +77,7 @@ func main() {
 
 	// rlpx | Connect to new nodes
 	go func() {
-		time.Sleep(3600 * time.Second)
+		// time.Sleep(3600 * time.Second)
 
 		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
@@ -105,9 +110,11 @@ func main() {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
 
-	log.Info().Msgf("Disconnecting from all nodes: %v", len(session_manager.GetAllSessions()))
+	count_all_nodes := len(session_manager.GetAllSessions())
+	log.Info().Msgf("Disconnecting from all nodes: %v", count_all_nodes)
 	cancel() // Signal all goroutines to stop
 	time.Sleep(2 * time.Second)
 	transport_node.Cleanup()
+	log.Info().Msgf("Disconnected from all nodes: %v", count_all_nodes)
 	os.Exit(0)
 }
