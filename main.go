@@ -6,12 +6,14 @@ import (
 	G "eth_discover/global"
 	"eth_discover/node"
 	"flag"
+	"fmt"
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/rs/zerolog/log"
 )
 
@@ -34,6 +36,8 @@ func main() {
 	G.SetPK(privateKey)
 	G.SetConfig(config)
 
+	fmt.Printf("Public key: %x\n", crypto.FromECDSAPub(G.PUBLIC_KEY)[1:])
+
 	// Node setup
 	n, err := node.Init(config)
 	if err != nil {
@@ -51,11 +55,12 @@ func main() {
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 
+	G.StartBlockListener("wss://eth-mainnet.g.alchemy.com/v2/hNDILvs5J8QZTv8t9KJx_LK_AE7hgFR6")
+
 	go func() {
 		// some ugly code to get pending transactions from alchemy, in order to attempt to become a better node
 		transport_node.GetAndSendPendingTransactionFromAlchemy(ctx)
 	}()
-	// select {}
 	// discv4 | Find new nodes
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)

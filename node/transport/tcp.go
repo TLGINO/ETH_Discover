@@ -8,16 +8,8 @@ import (
 	"io"
 	"net"
 	"strconv"
-	"time"
 
 	"github.com/rs/zerolog/log"
-)
-
-// Define timeouts to prevent freezing
-const (
-	ReadDeadline  = 30 * time.Second
-	WriteDeadline = 10 * time.Second
-	DialTimeout   = 5 * time.Second
 )
 
 type TCP struct {
@@ -61,94 +53,83 @@ func (t *TCP) handleConnections() {
 		go t.handleConnection(conn)
 	}
 }
-
 func (t *TCP) handleConnection(conn net.Conn) {
 	remoteAddr := conn.RemoteAddr().String()
 	ip, portStr, _ := net.SplitHostPort(remoteAddr)
+
+	// WARNING: This ID is unstable for incoming connections (ephemeral port).
+	// Better to rely on NodeID once handshake completes.
 	session_id := ip + ":" + portStr
+
 	defer func() {
 		t.sessionManager.RemoveSession(session_id)
 		conn.Close()
 	}()
 
-	// if new session, add it
-	sess, found := t.sessionManager.GetSession(session_id)
+	session, found := t.sessionManager.GetSession(session_id)
 	if !found {
 		portInt, _ := strconv.Atoi(portStr)
-		sess = t.sessionManager.AddSession(session_id, net.ParseIP(ip), uint16(portInt))
+		session = t.sessionManager.AddSession(session_id, net.ParseIP(ip), uint16(portInt))
 	}
-	sess.AddConn(conn)
+	session.AddConn(conn)
+
+	// FIX #1: Track handshake state locally if session isn't trustworthy yet
+	handshakeStarted := found
+
 	for {
-		// Set a ReadDeadline to ensure we don't block forever if the peer goes silent
-		if err := conn.SetReadDeadline(time.Now().Add(ReadDeadline)); err != nil {
-			log.Error().Err(err).Msgf("failed to set read deadline for %v", ip)
-			return
+		// FIX #1: Pass the updated state, not the initial variable
+		packet, pType, err := rlpx.DeserializePacket(conn, session, handshakeStarted)
+
+		// Once we successfully read a packet, we know the session exists/handshake is moving
+		if err == nil {
+			handshakeStarted = true
 		}
 
-		// deserialize message
-		packet, pType, err := rlpx.DeserializePacket(conn, sess, found)
 		if err != nil {
 			if err == io.EOF {
 				log.Warn().Msgf("connection closed by remote %v", ip)
 				return
 			}
-
-			// Handle specific network errors like timeouts or closed connections
-			if opErr, ok := err.(*net.OpError); ok {
-				if opErr.Timeout() {
-					log.Warn().Msgf("connection read timed out %v", ip)
-					return
-				}
-				if opErr.Err.Error() == "use of closed network connection" {
-					log.Warn().Msgf("connection closed: use of closed network connection %v", ip)
-					return
-				}
+			// Handle specific "use of closed network connection" error
+			if opErr, ok := err.(*net.OpError); ok && opErr.Err.Error() == "use of closed network connection" {
+				return
 			}
 
-			log.Error().Err(err).Msgf("error received tcp data %v", ip)
-			// Not too sure whether to disconnect or not here
-			// t.sessionManager.RemoveSession(ip)
-			// return
+			log.Error().Err(err).Msgf("read error from %v", ip)
 			continue
+			// return // FIX: Return on error to break infinite error loops
 		}
 
-		// exec callback
-		t.registry.ExecCallBack(packet, pType, sess)
+		// FIX #3: Ensure this callback is FAST.
+		// If it makes HTTP calls (like your CreateStatusMessage), it WILL timeout the peer.
+		t.registry.ExecCallBack(packet, pType, session)
 	}
 }
 
-func (t *TCP) Send(sess *session.Session, data []byte) {
+func (t *TCP) Send(session *session.Session, data []byte) {
 	// Check if we already have a connection to this address
-	conn, found := sess.GetConn()
+	conn, found := session.GetConn()
 
 	if !found {
-		toIP, toPort := sess.To()
+		toIP, toPort := session.To()
 		to := net.JoinHostPort(toIP.String(), strconv.Itoa(int(toPort)))
 
-		// open connection with a timeout
-		dialer := net.Dialer{Timeout: DialTimeout}
-		newConn, err := dialer.Dial("tcp", to)
+		// open connection
+		newConn, err := net.Dial("tcp", to)
 		if err != nil {
 			log.Error().Err(err).Msgf("failed to connect to server")
-			t.Close(sess)
+			t.Close(session)
 			return
 		}
 
 		// add conn to session
-		sess.AddConn(newConn)
+		session.AddConn(newConn)
 
 		// listen on connection
 		go t.handleConnection(newConn)
 
 		// always get the connection from session after adding
-		conn, _ = sess.GetConn()
-	}
-
-	// Set a WriteDeadline to prevent blocking if the peer isn't reading
-	if err := conn.SetWriteDeadline(time.Now().Add(WriteDeadline)); err != nil {
-		log.Error().Err(err).Msg("failed to set write deadline")
-		t.Close(sess)
-		return
+		conn, _ = session.GetConn()
 	}
 
 	// Send data using the connection
@@ -156,15 +137,15 @@ func (t *TCP) Send(sess *session.Session, data []byte) {
 	if err != nil {
 		// Remove failed connection
 		log.Error().Err(err).Msg("error sending via tcp:")
-		t.Close(sess)
+		t.Close(session)
 		return
 	}
 }
 
-func (t *TCP) Close(sess *session.Session) {
+func (t *TCP) Close(session *session.Session) {
 	// Close the connection without sending disconnect
 	// To close and disconnect, see transport_node.go
-	conn, found := sess.GetConn()
+	conn, found := session.GetConn()
 
 	if found {
 		conn.Close()
@@ -172,11 +153,11 @@ func (t *TCP) Close(sess *session.Session) {
 
 	// remove from session manager
 	// do not re-use conn object here -> potentially nil
-	session_id := sess.GetID()
+	session_id := session.GetID()
 	t.sessionManager.RemoveSession(session_id)
 
 	// find enode to reset
-	_, nodeID := sess.GetNodeID()
+	_, nodeID := session.GetNodeID()
 	allENodeTuples := t.tn.node.GetAllENodes()
 	for _, enode := range allENodeTuples {
 		if enode.Enode.ID == nodeID {
@@ -184,4 +165,5 @@ func (t *TCP) Close(sess *session.Session) {
 			return
 		}
 	}
+
 }
