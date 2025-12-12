@@ -53,55 +53,47 @@ func (t *TCP) handleConnections() {
 		go t.handleConnection(conn)
 	}
 }
+
 func (t *TCP) handleConnection(conn net.Conn) {
 	remoteAddr := conn.RemoteAddr().String()
 	ip, portStr, _ := net.SplitHostPort(remoteAddr)
-
-	// WARNING: This ID is unstable for incoming connections (ephemeral port).
-	// Better to rely on NodeID once handshake completes.
 	session_id := ip + ":" + portStr
-
 	defer func() {
 		t.sessionManager.RemoveSession(session_id)
 		conn.Close()
 	}()
 
+	// if new session, add it
 	session, found := t.sessionManager.GetSession(session_id)
 	if !found {
 		portInt, _ := strconv.Atoi(portStr)
 		session = t.sessionManager.AddSession(session_id, net.ParseIP(ip), uint16(portInt))
 	}
 	session.AddConn(conn)
-
-	// FIX #1: Track handshake state locally if session isn't trustworthy yet
-	handshakeStarted := found
-
 	for {
-		// FIX #1: Pass the updated state, not the initial variable
-		packet, pType, err := rlpx.DeserializePacket(conn, session, handshakeStarted)
 
-		// Once we successfully read a packet, we know the session exists/handshake is moving
-		if err == nil {
-			handshakeStarted = true
-		}
-
+		// deserialize message
+		packet, pType, err := rlpx.DeserializePacket(conn, session, found)
 		if err != nil {
 			if err == io.EOF {
 				log.Warn().Msgf("connection closed by remote %v", ip)
 				return
 			}
-			// Handle specific "use of closed network connection" error
+
+			// Handle specific network errors like "use of closed network connection"
 			if opErr, ok := err.(*net.OpError); ok && opErr.Err.Error() == "use of closed network connection" {
+				log.Warn().Msgf("connection closed: use of closed network connection %v", ip)
 				return
 			}
 
-			log.Error().Err(err).Msgf("read error from %v", ip)
+			log.Error().Err(err).Msgf("error received tcp data %v", ip)
+			// Not too sure whether to disconnect or not here
+			// t.sessionManager.RemoveSession(ip)
+			// return
 			continue
-			// return // FIX: Return on error to break infinite error loops
 		}
 
-		// FIX #3: Ensure this callback is FAST.
-		// If it makes HTTP calls (like your CreateStatusMessage), it WILL timeout the peer.
+		// exec callback
 		t.registry.ExecCallBack(packet, pType, session)
 	}
 }
