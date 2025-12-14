@@ -2,3 +2,6 @@ tx_data.db
 *.csv
 *.parquet
 *.pkl
+eth_discover
+testing/testing
+testing_rpc/testing_rpc
