@@ -132,7 +132,7 @@ func (tn *TransportNode) RelayBlockToPeers(block *types.Block, td *big.Int) {
 
 	sessions := tn.sessionManager.GetAllSessions()
 	relayCount := 0
-	
+
 	for _, session := range sessions {
 		if !session.IsBonded() {
 			continue

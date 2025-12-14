@@ -68,8 +68,17 @@ func notifyBlockCallbacks(block *types.Block) {
 	copy(callbacks, blockCallbacks)
 	blockCallbacksMu.RUnlock()
 
+	// Use goroutines with context awareness to prevent leaks
 	for _, callback := range callbacks {
-		go callback(block)
+		cb := callback // capture loop variable
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Error().Interface("panic", r).Msg("Block callback panicked")
+				}
+			}()
+			cb(block)
+		}()
 	}
 }
 
@@ -132,20 +141,25 @@ func runListener(wsURL string) {
 
 				// Fetch full block data in background
 				go func(hash common.Hash) {
-					var fullBlock types.Block
+					var fullBlock *types.Block
 					err := client.CallContext(ctx, &fullBlock, "eth_getBlockByHash", hash.Hex(), true)
 					if err != nil {
 						log.Warn().Err(err).Str("hash", hash.Hex()).Msg("Failed to fetch full block data")
 						return
 					}
 
+					if fullBlock == nil {
+						log.Warn().Str("hash", hash.Hex()).Msg("Received nil block from RPC")
+						return
+					}
+
 					blockMu.Lock()
-					latestFullBlock = &fullBlock
+					latestFullBlock = fullBlock
 					blockMu.Unlock()
 
 					// Notify all registered callbacks
-					notifyBlockCallbacks(&fullBlock)
-					
+					notifyBlockCallbacks(fullBlock)
+
 					log.Debug().Str("hash", hash.Hex()).Uint64("number", fullBlock.NumberU64()).Msg("Updated full block cache")
 				}(blockHash)
 

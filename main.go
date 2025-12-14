@@ -61,8 +61,12 @@ func main() {
 
 	// Register block relay callback to relay blocks from Alchemy to peers
 	G.RegisterBlockCallback(func(block *types.Block) {
-		// Use a reasonable total difficulty (actual value doesn't matter much post-merge)
-		td := new(big.Int)
+		// Use block's difficulty if available, otherwise use a small non-zero value
+		// Post-merge, difficulty is typically 0, but we use a small value to signal validity
+		td := block.Difficulty()
+		if td == nil || td.Cmp(big.NewInt(0)) == 0 {
+			td = big.NewInt(1) // Minimal non-zero value for post-merge blocks
+		}
 		transport_node.RelayBlockToPeers(block, td)
 	})
 
