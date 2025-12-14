@@ -7,12 +7,14 @@ import (
 	"eth_discover/node"
 	"flag"
 	"fmt"
+	"math/big"
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/rs/zerolog/log"
 )
@@ -56,6 +58,13 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	G.StartBlockListener("wss://eth-mainnet.g.alchemy.com/v2/hNDILvs5J8QZTv8t9KJx_LK_AE7hgFR6")
+
+	// Register block relay callback to relay blocks from Alchemy to peers
+	G.RegisterBlockCallback(func(block *types.Block) {
+		// Use a reasonable total difficulty (actual value doesn't matter much post-merge)
+		td := new(big.Int)
+		transport_node.RelayBlockToPeers(block, td)
+	})
 
 	go func() {
 		// some ugly code to get pending transactions from alchemy, in order to attempt to become a better node

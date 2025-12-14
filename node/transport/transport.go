@@ -123,6 +123,40 @@ func (tn *TransportNode) Disconnect(session *session.Session, reason uint64) {
 
 	tn.tcp.Close(session)
 }
+
+// RelayBlockToPeers sends a NewBlock message to all bonded peers.
+func (tn *TransportNode) RelayBlockToPeers(block *types.Block, td *big.Int) {
+	if block == nil {
+		return
+	}
+
+	sessions := tn.sessionManager.GetAllSessions()
+	relayCount := 0
+	
+	for _, session := range sessions {
+		if !session.IsBonded() {
+			continue
+		}
+
+		newBlockMsg, err := rlpx.CreateNewBlock(session, block, td)
+		if err != nil {
+			log.Err(err).Str("component", "eth").Msg("error creating NewBlock message")
+			continue
+		}
+
+		tn.SendTCP(session, newBlockMsg)
+		relayCount++
+	}
+
+	if relayCount > 0 {
+		log.Info().Str("component", "eth").
+			Uint64("block_number", block.NumberU64()).
+			Str("block_hash", block.Hash().Hex()).
+			Int("peers", relayCount).
+			Msg("Relayed block to peers")
+	}
+}
+
 func (tn *TransportNode) GetAndSendPendingTransactionFromAlchemy(ctx context.Context) {
 	wsURL := "wss://eth-mainnet.g.alchemy.com/v2/hNDILvs5J8QZTv8t9KJx_LK_AE7hgFR6"
 
