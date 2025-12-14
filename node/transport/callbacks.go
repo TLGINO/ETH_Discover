@@ -141,6 +141,10 @@ func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
 		// panic("3")
 	case *rlpx.NewBlock:
 		log.Info().Str("component", "eth").Msgf("received newBlock frame %v", frame.String())
+		
+		// Relay the block to other peers (good network citizenship)
+		newBlock := f.(*rlpx.NewBlock)
+		tn.RelayBlockToPeers(newBlock.Block, newBlock.TD)
 	case *rlpx.NewPooledTransactionHashes:
 		log.Info().Str("component", "eth").Msgf("received newPooledTransactionHashes frame %v", frame.String())
 

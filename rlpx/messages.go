@@ -466,6 +466,13 @@ func CreateGetPooledTransactions(session *session.Session, request_id uint64, ha
 	}
 	return createFrame(session, gpt)
 }
+func CreateNewBlock(session *session.Session, block *types.Block, td *big.Int) ([]byte, error) {
+	nb := NewBlock{
+		Block: block,
+		TD:    td,
+	}
+	return createFrame(session, nb)
+}
 func createFrame(session *session.Session, frameContent FrameContent) ([]byte, error) {
 	msg_data, err := rlp.EncodeToBytes(frameContent)
 	if err != nil {

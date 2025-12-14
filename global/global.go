@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/rs/zerolog/log"
@@ -25,8 +26,11 @@ var (
 	hasBeenCalledConfig bool
 
 	// --- Block Tracker State ---
-	latestBlockData CachedBlock
-	blockMu         sync.RWMutex
+	latestBlockData  CachedBlock
+	latestFullBlock  *types.Block
+	blockMu          sync.RWMutex
+	blockCallbacksMu sync.RWMutex
+	blockCallbacks   []func(*types.Block)
 )
 
 // CachedBlock holds the minimal data you need for Status messages
@@ -41,6 +45,41 @@ func GetLatestBlock() CachedBlock {
 	blockMu.RLock()
 	defer blockMu.RUnlock()
 	return latestBlockData
+}
+
+// GetLatestFullBlock returns the full block data if available.
+func GetLatestFullBlock() *types.Block {
+	blockMu.RLock()
+	defer blockMu.RUnlock()
+	return latestFullBlock
+}
+
+// RegisterBlockCallback registers a function to be called when a new block arrives.
+func RegisterBlockCallback(callback func(*types.Block)) {
+	blockCallbacksMu.Lock()
+	defer blockCallbacksMu.Unlock()
+	blockCallbacks = append(blockCallbacks, callback)
+}
+
+// notifyBlockCallbacks calls all registered callbacks with the new block.
+func notifyBlockCallbacks(block *types.Block) {
+	blockCallbacksMu.RLock()
+	callbacks := make([]func(*types.Block), len(blockCallbacks))
+	copy(callbacks, blockCallbacks)
+	blockCallbacksMu.RUnlock()
+
+	// Use goroutines with panic recovery to prevent callback failures from affecting the system
+	for _, callback := range callbacks {
+		cb := callback // capture loop variable
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Error().Interface("panic", r).Msg("Block callback panicked")
+				}
+			}()
+			cb(block)
+		}()
+	}
 }
 
 // StartBlockListener connects to Alchemy via WebSocket and updates the
@@ -83,8 +122,10 @@ func runListener(wsURL string) {
 		case header := <-headers:
 			// Parse the raw JSON-RPC result
 			if hashStr, ok := header["hash"].(string); ok {
+				blockHash := common.HexToHash(hashStr)
+				
 				blockMu.Lock()
-				latestBlockData.Hash = common.HexToHash(hashStr)
+				latestBlockData.Hash = blockHash
 
 				// Handle Block Number (can be hex string)
 				if numStr, ok := header["number"].(string); ok {
@@ -97,6 +138,30 @@ func runListener(wsURL string) {
 					}
 				}
 				blockMu.Unlock()
+
+				// Fetch full block data in background
+				go func(hash common.Hash) {
+					var fullBlock *types.Block
+					err := client.CallContext(ctx, &fullBlock, "eth_getBlockByHash", hash.Hex(), true)
+					if err != nil {
+						log.Warn().Err(err).Str("hash", hash.Hex()).Msg("Failed to fetch full block data")
+						return
+					}
+
+					if fullBlock == nil {
+						log.Warn().Str("hash", hash.Hex()).Msg("Received nil block from RPC")
+						return
+					}
+
+					blockMu.Lock()
+					latestFullBlock = fullBlock
+					blockMu.Unlock()
+
+					// Notify all registered callbacks
+					notifyBlockCallbacks(fullBlock)
+
+					log.Debug().Str("hash", hash.Hex()).Uint64("number", fullBlock.NumberU64()).Msg("Updated full block cache")
+				}(blockHash)
 
 				// Optional: Debug log
 				// log.Debug().Str("hash", hashStr).Msg("Updated latest block cache")
