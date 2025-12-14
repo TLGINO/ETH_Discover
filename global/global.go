@@ -68,7 +68,7 @@ func notifyBlockCallbacks(block *types.Block) {
 	copy(callbacks, blockCallbacks)
 	blockCallbacksMu.RUnlock()
 
-	// Use goroutines with context awareness to prevent leaks
+	// Use goroutines with panic recovery to prevent callback failures from affecting the system
 	for _, callback := range callbacks {
 		cb := callback // capture loop variable
 		go func() {
