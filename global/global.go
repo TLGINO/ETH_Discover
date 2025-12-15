@@ -27,6 +27,9 @@ var (
 	// --- Block Tracker State ---
 	latestBlockData CachedBlock
 	blockMu         sync.RWMutex
+
+	// --- New Block Channel for broadcasting ---
+	newBlockChan chan CachedBlock
 )
 
 // CachedBlock holds the minimal data you need for Status messages
@@ -43,9 +46,16 @@ func GetLatestBlock() CachedBlock {
 	return latestBlockData
 }
 
+// GetNewBlockChannel returns the channel that receives new block notifications
+func GetNewBlockChannel() <-chan CachedBlock {
+	return newBlockChan
+}
+
 // StartBlockListener connects to Alchemy via WebSocket and updates the
 // latestBlockData variable in the background automatically.
 func StartBlockListener(wsURL string) {
+	newBlockChan = make(chan CachedBlock, 100)
+
 	go func() {
 		// Keep trying to reconnect if connection drops
 		for {
@@ -90,16 +100,20 @@ func runListener(wsURL string) {
 				if numStr, ok := header["number"].(string); ok {
 					// Remove 0x and decode
 					var num uint64
-					// Geth hex util or fmt.Sscanf is useful here, simpler to use HexToBig usually
-					// but here is a quick lightweight parse:
 					if _, err := fmt.Sscanf(numStr, "0x%x", &num); err == nil {
 						latestBlockData.Number = num
 					}
 				}
-				blockMu.Unlock()
 
-				// Optional: Debug log
-				// log.Debug().Str("hash", hashStr).Msg("Updated latest block cache")
+				// Send to channel for broadcasting (non-blocking)
+				select {
+				case newBlockChan <- latestBlockData:
+					log.Info().Str("component", "alchemy").Uint64("number", latestBlockData.Number).Str("hash", latestBlockData.Hash.Hex()).Msg("new block received from Alchemy")
+				default:
+					// Channel full, skip
+				}
+
+				blockMu.Unlock()
 			}
 		}
 	}

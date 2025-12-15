@@ -172,4 +172,5 @@ func getPublicIP() (net.IP, error) {
 		return nil, err
 	}
 	return net.ParseIP(ip.Query), nil
+	// return net.ParseIP("127.0.0.1"), nil
 }

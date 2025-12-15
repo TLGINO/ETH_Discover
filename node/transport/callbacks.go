@@ -122,6 +122,8 @@ func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
 			return
 		}
 		session.SetBonded()
+	case *rlpx.NewBlockHashes:
+		log.Info().Str("component", "eth").Msgf("received newBlockHashes frame %v", frame.String())
 	case *rlpx.Transactions:
 		log.Info().Str("component", "eth").Msgf("received transaction frame %v", frame.String())
 
@@ -132,10 +134,27 @@ func (tn *TransportNode) ExecFrame(m rlpx.Packet, session *session.Session) {
 
 	case *rlpx.GetBlockHeaders:
 		log.Info().Str("component", "eth").Msgf("received getBlockHeaders frame %v", frame.String())
-		// panic("1")
+
+		// Respond with empty headers (we don't store full block data)
+		request := frame
+		response, err := rlpx.CreateBlockHeaders(session, request.RequestId, nil)
+		if err != nil {
+			log.Err(err).Str("component", "eth").Msg("error creating BlockHeaders response")
+			break
+		}
+		tn.SendTCP(session, response)
+
 	case *rlpx.GetBlockBodies:
 		log.Info().Str("component", "eth").Msgf("received getBlockBodies frame %v", frame.String())
-		// panic("2")
+
+		// Respond with empty bodies (we don't store full block data)
+		request := frame
+		response, err := rlpx.CreateBlockBodies(session, request.RequestID, nil)
+		if err != nil {
+			log.Err(err).Str("component", "eth").Msg("error creating BlockBodies response")
+			break
+		}
+		tn.SendTCP(session, response)
 	case *rlpx.BlockBodies:
 		log.Info().Str("component", "eth").Msgf("received blockBodies frame %v", frame.String())
 		// panic("3")

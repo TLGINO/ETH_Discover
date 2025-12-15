@@ -52,14 +52,21 @@ func main() {
 	transport_node := n.GetTransportNode()
 	session_manager := transport_node.GetSessionManager()
 
+	// if config.TcpPort == 33333 {
+	// 	select {}
+	// }
+
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 
-	G.StartBlockListener("wss://eth-mainnet.g.alchemy.com/v2/hNDILvs5J8QZTv8t9KJx_LK_AE7hgFR6")
+	G.StartBlockListener("wss://eth-mainnet.g.alchemy.com/v2/123123123")
+
+	// Start broadcasting new blocks from Alchemy to peers
+	// transport_node.StartNewBlockBroadcaster(ctx)
 
 	go func() {
 		// some ugly code to get pending transactions from alchemy, in order to attempt to become a better node
-		transport_node.GetAndSendPendingTransactionFromAlchemy(ctx)
+		// transport_node.GetAndSendPendingTransactionFromAlchemy(ctx)
 	}()
 	// discv4 | Find new nodes
 	go func() {
@@ -85,6 +92,7 @@ func main() {
 		// time.Sleep(3600 * time.Second)
 
 		ticker := time.NewTicker(60 * time.Second)
+		// ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
@@ -116,7 +124,7 @@ func main() {
 	<-c
 
 	count_all_nodes := len(session_manager.GetAllSessions())
-	log.Info().Msgf("Disconnecting from all nodes: %v", count_all_nodes)
+	log.Info().Msgf("Disconnecting from all nodes:  %v", count_all_nodes)
 	cancel() // Signal all goroutines to stop
 	time.Sleep(2 * time.Second)
 	transport_node.Cleanup()

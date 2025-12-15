@@ -18,7 +18,7 @@ import (
 )
 
 func DeserializePacket(conn io.Reader, session *session.Session, found bool) (Packet, byte, error) {
-	if !found {
+	if !found && !session.IsInitiator() {
 		packet, err := handleAuthMessage(conn, session)
 		return packet, 0x01, err
 	} else if !session.IsActive() {
@@ -276,6 +276,8 @@ func handleFrame(conn io.Reader, session *session.Session) (Packet, error) {
 		resolved_frame = &FramePong{}
 	case 16:
 		resolved_frame = &Status{}
+	case 17:
+		resolved_frame = &NewBlockHashes{}
 	case 18:
 		resolved_frame = &Transactions{}
 	case 19:

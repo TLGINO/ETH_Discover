@@ -11,6 +11,8 @@ import (
 	"math/big"
 	"time"
 
+	G "eth_discover/global"
+
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -123,8 +125,51 @@ func (tn *TransportNode) Disconnect(session *session.Session, reason uint64) {
 
 	tn.tcp.Close(session)
 }
+
+// BroadcastNewBlockHashes sends NewBlockHashes announcement to all bonded peers
+func (tn *TransportNode) BroadcastNewBlockHashes(block G.CachedBlock) {
+	sessions := tn.sessionManager.GetAllSessions()
+	sentCount := 0
+
+	for _, session := range sessions {
+		if session == nil || !session.IsBonded() {
+			continue
+		}
+
+		msg, err := rlpx.CreateNewBlockHashes(session, block.Hash, block.Number)
+		if err != nil {
+			log.Err(err).Str("component", "eth").Msg("error creating NewBlockHashes message")
+			continue
+		}
+
+		tn.SendTCP(session, msg)
+		sentCount++
+	}
+
+	log.Info().Str("component", "eth").
+		Uint64("block_number", block.Number).
+		Str("block_hash", block.Hash.Hex()).
+		Int("peer_count", sentCount).
+		Msg("broadcasted NewBlockHashes to peers")
+}
+
+// StartNewBlockBroadcaster listens for new blocks from Alchemy and broadcasts to peers
+func (tn *TransportNode) StartNewBlockBroadcaster(ctx context.Context) {
+	go func() {
+		blockChan := G.GetNewBlockChannel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case block := <-blockChan:
+				tn.BroadcastNewBlockHashes(block)
+			}
+		}
+	}()
+}
+
 func (tn *TransportNode) GetAndSendPendingTransactionFromAlchemy(ctx context.Context) {
-	wsURL := "wss://eth-mainnet.g.alchemy.com/v2/hNDILvs5J8QZTv8t9KJx_LK_AE7hgFR6"
+	wsURL := "wss://eth-mainnet.g.alchemy.com/v2/123123123"
 
 	for { // Outer loop to handle disconnections and attempt reconnection
 		log.Info().Msg("Attempting to connect to Alchemy for pending transactions...")

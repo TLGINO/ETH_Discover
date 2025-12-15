@@ -68,6 +68,8 @@ func (dn *DiscoveryNode) SetNode(n interfaces.NodeInterface) {
 	// p7 := interfaces.CreateEnode("enode://fc7624241515f9d5e599a396362c29de92b13a048ad361c90dd72286aa4cca835ba65e140a46ace70cc4dcb18472a476963750b3b69d958c5f546d48675880a8@34.147.169.102:30303")
 	// p8 := interfaces.CreateEnode("enode://a36848f536ff6c431e9e3ccbb2f859a5c71f6e5e2d282d8dc6e0199618256444c5032f4cbf7e8579da9fa4d30251b7a55a2d6d3711516112e8dced057c8596c6@34.89.55.74:30303")
 
+	// localNode := interfaces.CreateEnode("enode://c7ab3a207a1b8041ee6c35efeb0c9f7985ed9286ba906be3ff75eb163572185a85343c0ec1e33565190be57ddfc5e5eef674532e7483707302c9fd77602e55d9@127.0.0.1:33333")
+
 	// mainnnet
 	dn.AddENode(&e1)
 	dn.UpdateENode(&e1, interfaces.NotBondedENode)
@@ -107,6 +109,9 @@ func (dn *DiscoveryNode) SetNode(n interfaces.NodeInterface) {
 	// dn.UpdateENode(&p7, interfaces.NotBondedENode)
 	// dn.AddENode(&p8)
 	// dn.UpdateENode(&p8, interfaces.NotBondedENode)
+
+	// dn.AddENode(&localNode)
+	// dn.UpdateENode(&localNode, interfaces.NotBondedENode)
 
 	dn.registry.AddCallBack(0x01, dn.ExecPing)
 	dn.registry.AddCallBack(0x02, dn.ExecPong)

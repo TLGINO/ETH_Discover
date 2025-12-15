@@ -130,6 +130,14 @@ type Status struct {
 func (f Status) Type() uint64 { return 0x10 }
 
 // implements FrameContent
+type NewBlockHashes []struct {
+	Hash   common.Hash // Hash of one particular block being announced
+	Number uint64      // Number of one particular block being announced
+}
+
+func (f NewBlockHashes) Type() uint64 { return 0x11 }
+
+// implements FrameContent
 type Transactions struct {
 	Transactions []*types.Transaction
 
@@ -158,7 +166,15 @@ type GetBlockHeaders struct {
 	*GetBlockHeadersRequest
 }
 
-func (f GetBlockHeaders) Type() uint64 { return 0x19 }
+func (f GetBlockHeaders) Type() uint64 { return 0x13 }
+
+// implements FrameContent
+type BlockHeaders struct {
+	RequestID uint64
+	Headers   []*types.Header
+}
+
+func (f BlockHeaders) Type() uint64 { return 0x14 }
 
 // -------
 
@@ -365,7 +381,7 @@ func CreateStatusMessage(session *session.Session) ([]byte, error) {
 	// 2. "Curl" Alchemy for the Latest Block Hash
 	// We use a raw HTTP request to ensure we get exactly what the API returns.
 	// payload := strings.NewReader(`{"jsonrpc":"2.0","method":"eth_getBlockByNumber","params":["latest", false],"id":1}`)
-	// req, err := http.NewRequest("POST", "https://eth-mainnet.g.alchemy.com/v2/hNDILvs5J8QZTv8t9KJx_LK_AE7hgFR6", payload)
+	// req, err := http.NewRequest("POST", "https://eth-mainnet.g.alchemy.com/v2/123123123", payload)
 	// if err != nil {
 	// 	return nil, err
 	// }
@@ -418,6 +434,33 @@ func CreateStatusMessage(session *session.Session) ([]byte, error) {
 
 	return createFrame(session, s)
 }
+func CreateNewBlockHashes(session *session.Session, hash common.Hash, number uint64) ([]byte, error) {
+	n := NewBlockHashes{
+		{Hash: hash, Number: number},
+	}
+	return createFrame(session, n)
+}
+func CreateBlockHeaders(session *session.Session, requestID uint64, headers []*types.Header) ([]byte, error) {
+	if headers == nil {
+		headers = []*types.Header{}
+	}
+	bh := BlockHeaders{
+		RequestID: requestID,
+		Headers:   headers,
+	}
+	return createFrame(session, bh)
+}
+
+func CreateBlockBodies(session *session.Session, requestID uint64, bodies []*BBody) ([]byte, error) {
+	if bodies == nil {
+		bodies = []*BBody{}
+	}
+	bb := BlockBodies{
+		RequestID: requestID,
+		BBodies:   bodies,
+	}
+	return createFrame(session, bb)
+}
 func CreateFrameGetBlockHeaders(session *session.Session) ([]byte, error) {
 	gbh := GetBlockHeaders{
 		RequestId: 18034466903846788292,
@@ -431,6 +474,7 @@ func CreateFrameGetBlockHeaders(session *session.Session) ([]byte, error) {
 
 	return createFrame(session, gbh)
 }
+
 func CreateFrameGetBlockBodies(session *session.Session) ([]byte, error) {
 	genesis, err := HexToBytes("d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3")
 	if err != nil {
@@ -587,4 +631,12 @@ func (gpt *GetPooledTransactions) String() string {
 
 func (pt *PooledTransactions) String() string {
 	return fmt.Sprintf("RequestID: %d, N Transactions: %d", pt.RequestID, len(pt.Transactions))
+}
+
+func (n NewBlockHashes) String() string {
+	return fmt.Sprintf("NewBlockHashes: %d entries", len(n))
+}
+
+func (bh *BlockHeaders) String() string {
+	return fmt.Sprintf("RequestID: %d, Headers: %d", bh.RequestID, len(bh.Headers))
 }
