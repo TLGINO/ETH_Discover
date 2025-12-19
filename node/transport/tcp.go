@@ -60,35 +60,21 @@ func (t *TCP) handleIncomingConnection(conn net.Conn) {
 
 	log.Debug().Msgf("Accepted incoming connection from %s", remoteAddr)
 
-	// Try to find existing session by IP (in case we also connected to them)
-	var session *session.Session
-	var session_id string
-	found := false
+	// SIMPLE STRATEGY: Always create a new session for incoming connections
+	// Don't try to match with outgoing sessions - keep them separate
+	// Each connection gets its own session
 
-	for _, s := range t.sessionManager.GetAllSessions() {
-		toIP, _ := s.To()
-		if toIP.String() == ip {
-			session = s
-			session_id = s.GetID()
-			found = true
-			log.Debug().Msgf("Found existing session for IP %s: %s", ip, session_id)
-			break
-		}
-	}
-
-	// If not found, create new session with ephemeral port
-	if !found {
-		session_id = ip + ":" + portStr
-		portInt, _ := strconv.Atoi(portStr)
-		session = t.sessionManager.AddSession(session_id, net.ParseIP(ip), uint16(portInt))
-		log.Debug().Msgf("Created new session for incoming: %s (ephemeral port)", session_id)
-	}
+	ephemeralSessionID := ip + ":" + portStr
+	portInt, _ := strconv.Atoi(portStr)
+	session := t.sessionManager.AddSession(ephemeralSessionID, net.ParseIP(ip), uint16(portInt))
+	log.Debug().Msgf("Created new session for incoming: %s", ephemeralSessionID)
 
 	// Add connection to session
 	session.AddConn(conn)
 
 	defer func() {
 		log.Debug().Msgf("Closing incoming connection from %s", remoteAddr)
+		t.sessionManager.RemoveSession(ephemeralSessionID)
 		conn.Close()
 	}()
 
@@ -99,7 +85,7 @@ func (t *TCP) handleIncomingConnection(conn net.Conn) {
 // handleOutgoingConnection handles connections we initiated (outgoing)
 func (t *TCP) handleOutgoingConnection(conn net.Conn, session *session.Session) {
 	remoteAddr := conn.RemoteAddr().String()
-	log.Debug().Msgf("Started reader for outgoing connection to %s (session %s)", remoteAddr, session.GetID())
+	log.Debug().Msgf("Started reader for outgoing connection to %s (session: %s)", remoteAddr, session.GetID())
 
 	defer func() {
 		log.Debug().Msgf("Closing outgoing connection to %s", remoteAddr)
@@ -114,18 +100,8 @@ func (t *TCP) handleOutgoingConnection(conn net.Conn, session *session.Session) 
 func (t *TCP) readLoop(conn net.Conn, session *session.Session, connType string) {
 	firstPacket := true
 	for {
-		// Get current session (might have been updated)
+		// Use the session as-is - no lookups needed
 		currentSession := session
-		ip, _ := session.To()
-
-		// Try to get updated session from manager
-		for _, s := range t.sessionManager.GetAllSessions() {
-			toIP, _ := s.To()
-			if toIP.String() == ip.String() {
-				currentSession = s
-				break
-			}
-		}
 
 		// Deserialize message
 		packet, pType, err := rlpx.DeserializePacket(conn, currentSession, !firstPacket)
@@ -173,10 +149,8 @@ func (t *TCP) Send(session *session.Session, data []byte) {
 		log.Debug().Msgf("Connected to %s (local: %s)", newConn.RemoteAddr(), newConn.LocalAddr())
 
 		// CRITICAL: Start reader for this outgoing connection
-		// This allows us to receive responses (AuthAck, Hello, Status, etc.)
 		go t.handleOutgoingConnection(newConn, session)
 
-		// Get the connection from session
 		conn = newConn
 	} else {
 		toIP, toPort := session.To()
@@ -193,52 +167,9 @@ func (t *TCP) Send(session *session.Session, data []byte) {
 	}
 }
 
-// UpdateSessionPort updates the session's target port after learning it from the Hello frame
+// UpdateSessionPort - not used since ListenPort is always 0
 func (t *TCP) UpdateSessionPort(oldSession *session.Session, newPort uint16) *session.Session {
-	if newPort == 0 {
-		log.Debug().Msgf("No listen port in Hello, keeping session %s", oldSession.GetID())
-		return oldSession
-	}
-
-	oldID := oldSession.GetID()
-	ip, _ := oldSession.To()
-	newID := fmt.Sprintf("%s:%d", ip.String(), newPort)
-
-	if oldID == newID {
-		log.Debug().Msgf("Session ID unchanged: %s", oldID)
-		return oldSession
-	}
-
-	log.Info().Msgf("Updating session from %s to %s (ListenPort=%d)", oldID, newID, newPort)
-
-	// Check if new session already exists
-	existingSession, exists := t.sessionManager.GetSession(newID)
-	if exists {
-		log.Info().Msgf("Merging old session %s into existing %s", oldID, newID)
-		conn, hasConn := oldSession.GetConn()
-		if hasConn {
-			if _, existingHasConn := existingSession.GetConn(); !existingHasConn {
-				existingSession.AddConn(conn)
-			}
-		}
-		t.sessionManager.RemoveSession(oldID)
-		return existingSession
-	}
-
-	// Create new session with correct port
-	newSession := t.sessionManager.AddSession(newID, ip, newPort)
-
-	// Transfer connection
-	conn, hasConn := oldSession.GetConn()
-	if hasConn {
-		newSession.AddConn(conn)
-	}
-
-	// Remove old session
-	t.sessionManager.RemoveSession(oldID)
-
-	log.Info().Msgf("Successfully updated session from %s to %s", oldID, newID)
-	return newSession
+	return oldSession
 }
 
 func (t *TCP) Close(session *session.Session) {
