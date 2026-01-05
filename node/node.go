@@ -141,11 +141,24 @@ func initDB() (*sql.DB, error) {
 	CREATE TABLE IF NOT EXISTS NODE_DISCV4 (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		node_id TEXT NOT NULL,
+		ip TEXT NOT NULL,
 		timestamp DATETIME DEFAULT (datetime('now', 'utc'))
 	);
 	`
 
 	_, err = db.Exec(sql)
+	if err != nil {
+		return nil, err
+	}
+
+	// enable WAL
+	_, err = db.Exec("PRAGMA journal_mode=WAL;")
+	if err != nil {
+		return nil, err
+	}
+
+	// increase cache size
+	_, err = db.Exec("PRAGMA synchronous=NORMAL;") // safer than FULL for high insert throughput
 	if err != nil {
 		return nil, err
 	}
@@ -229,15 +242,15 @@ func (n *Node) InsertNodeDisconnect(session *session.Session, data interface{}) 
 	}
 }
 
-func (n *Node) InsertNodeDiscv4(id [64]byte) {
+func (n *Node) InsertNodeDiscv4(id [64]byte, ip string) {
 	// Get node data
 	nodeID := hex.EncodeToString(id[:])
 
 	// Write to db
 	sql := `
-	INSERT INTO NODE_DISCV4 (node_id, timestamp)
-	VALUES (?, datetime('now', 'utc'))`
-	_, err := n.db.Exec(sql, nodeID)
+	INSERT INTO NODE_DISCV4 (node_id,ip,timestamp)
+	VALUES (?,?, datetime('now', 'utc'))`
+	_, err := n.db.Exec(sql, ip, nodeID)
 	if err != nil {
 		log.Err(err).Msg("failed to insert nodeID into database")
 		return

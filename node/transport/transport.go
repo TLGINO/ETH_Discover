@@ -233,54 +233,54 @@ func (tn *TransportNode) GetAndSendPendingTransactionFromAlchemy(ctx context.Con
 				// fmt.Printf("Received pending transaction: %s\n", txHash.Hex())
 				tn.AddTxHashSender(txHashArray, sender, tx)
 
-				// NOTE: The "do not do the sending part for now" instruction is followed.
-				// Add your sending logic here later if needed.
-				// iterate all known sessions and send the announcement to those not in seen
-				// this is duplicated code from callback
-				// not good i know
+				// Build a map of unseen transactions per peer
+				peerTxMap := make(map[string][]*types.Transaction)
 				sessionIDs := tn.GetTxHashSenders(txHash)
 				seen := make(map[string]struct{})
 				for _, id := range sessionIDs {
 					seen[id] = struct{}{}
 				}
+
 				for _, peer := range tn.GetSessionManager().GetAllSessions() {
-					// println("HERE SENDING TX TO OTHERS")
-					if !peer.IsBonded() {
+					if !peer.IsBonded() || peer == nil {
 						continue
+					}
+
+					pid := peer.GetID()
+					// Skip if this peer already sent us this transaction
+					if _, ok := seen[pid]; ok {
+						continue
+					}
+
+					// Add this transaction to the peer's unseen list
+					peerTxMap[pid] = append(peerTxMap[pid], tx)
+				}
+
+				// Send all unseen transactions for each peer in a single batch
+				for pid, txs := range peerTxMap {
+					// Find the peer by ID
+					var peer *session.Session
+					for _, p := range tn.GetSessionManager().GetAllSessions() {
+						if p.GetID() == pid {
+							peer = p
+							break
+						}
 					}
 					if peer == nil {
 						continue
 					}
-					println("HERE SENDING TX TO OTHERS 1")
-					pid := peer.GetID()
-					// don't send back to original sender or to peers that already sent us this tx
-					// if pid == session.GetID() {
-					// 	continue
-					// }
-					if _, ok := seen[pid]; ok {
-						continue
-					}
-					println("HERE SENDING TX TO OTHERS 2")
 
-					// prepare single-element slices for the NewPooledTransactionHashes message
-					types := []byte{tx.Type()}
-					sizes := []uint32{uint32(tx.Size())}
-					h := tx.Hash()
-					var hArr [32]byte
-					copy(hArr[:], h[:])
-					hashes := [][32]byte{hArr}
-					log.Info().Str("component", "eth").Msgf("pid=%s types=%v sizes=%v hashes=%v", pid, types, sizes, hashes)
-					msg, err := rlpx.CreateNewPooledTransactionHashes(peer, types, sizes, hashes)
+					msg, err := rlpx.CreateTransactions(peer, txs)
 					if err != nil {
-						log.Err(err).Str("component", "eth").Msg("error creating NewPooledTransactionHashes")
+						log.Err(err).Str("component", "eth").Msg("error creating Transactions")
 						continue
 					}
-
-					println("HERE SENDING TX TO OTHERS 3")
 
 					tn.SendTCP(peer, msg)
-					tn.node.InsertTX(peer, tx, true)
-					tn.AddTxHashSender(tx.Hash(), pid, tx)
+					for _, t := range txs {
+						tn.node.InsertTX(peer, t, true)
+						tn.AddTxHashSender(t.Hash(), pid, t)
+					}
 				}
 
 				// case <-time.After(5 * time.Minute):

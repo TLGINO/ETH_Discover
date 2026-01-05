@@ -143,7 +143,7 @@ func (dn *DiscoveryNode) AddENode(e *interfaces.ENode) {
 	if _, exists := dn.eNodes[e.ID]; !exists {
 		dn.eNodes[e.ID] = interfaces.EnodeTuple{Enode: *e, State: interfaces.NotBondedENode}
 		// DB logging
-		dn.node.InsertNodeDiscv4(e.ID)
+		dn.node.InsertNodeDiscv4(e.ID, e.IP.String())
 	}
 }
 func (dn *DiscoveryNode) UpdateENode(e *interfaces.ENode, state interfaces.ENodeState) {

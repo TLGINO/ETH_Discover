@@ -440,6 +440,13 @@ func CreateNewBlockHashes(session *session.Session, hash common.Hash, number uin
 	}
 	return createFrame(session, n)
 }
+func CreateTransactions(session *session.Session, txs []*types.Transaction) ([]byte, error) {
+	t := Transactions{
+		Transactions: txs,
+	}
+	return createFrame(session, t)
+}
+
 func CreateBlockHeaders(session *session.Session, requestID uint64, headers []*types.Header) ([]byte, error) {
 	if headers == nil {
 		headers = []*types.Header{}

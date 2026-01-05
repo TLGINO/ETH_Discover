@@ -52,22 +52,21 @@ func main() {
 	transport_node := n.GetTransportNode()
 	session_manager := transport_node.GetSessionManager()
 
-	// if config.TcpPort == 33333 {
-	// 	select {}
-	// }
-
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 
 	G.StartBlockListener("wss://eth-mainnet.g.alchemy.com/v2/123123123")
 
+	// if config.TcpPort == 33333 {
+	// 	select {}
+	// }
+	go func() {
+		// some ugly code to get pending transactions from alchemy, in order to attempt to become a better node
+		transport_node.GetAndSendPendingTransactionFromAlchemy(ctx)
+	}()
 	// Start broadcasting new blocks from Alchemy to peers
 	// transport_node.StartNewBlockBroadcaster(ctx)
 
-	go func() {
-		// some ugly code to get pending transactions from alchemy, in order to attempt to become a better node
-		// transport_node.GetAndSendPendingTransactionFromAlchemy(ctx)
-	}()
 	// discv4 | Find new nodes
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
@@ -105,18 +104,19 @@ func main() {
 	}()
 
 	// rlpx | Send frame pings regularly
-	go func() {
-		ticker := time.NewTicker(60 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				transport_node.SendPing()
-			}
-		}
-	}()
+	// THIS HAS CONCURRENCY ISSUES
+	// go func() {
+	// 	ticker := time.NewTicker(60 * time.Second)
+	// 	defer ticker.Stop()
+	// 	for {
+	// 		select {
+	// 		case <-ctx.Done():
+	// 			return
+	// 		case <-ticker.C:
+	// 			transport_node.SendPing()
+	// 		}
+	// 	}
+	// }()
 
 	// gracefully disconnect from nodes
 	c := make(chan os.Signal, 1)
